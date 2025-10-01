@@ -54,88 +54,73 @@ logger = logging.getLogger(__name__)
 
 # SQLAlchemy metadata for schema definition only (NO connections)
 metadata = MetaData()
+# 🚀 OPTIMIZED USERS TABLE (Essential Only)
+users_table = Table(
+  'users',
+  metadata,
+  # Identity
+  Column('id', Integer, primary_key=True, autoincrement=True),
+  Column('firebase_uid', String(128), unique=True, nullable=False),  # Primary identity
 
-# Users table definition
-users_table = Table('users', metadata,
-    Column('id', Integer, primary_key=True, autoincrement=True),
-    Column('user_uuid', UUID, nullable=False, unique=True, server_default=func.gen_random_uuid()),
-    Column('firebase_uid', String(128), unique=True),
-    Column('email', String(255), unique=True, nullable=False),
-    Column('email_verified', Boolean, default=False),
-    Column('first_name', String(100)),
-    Column('last_name', String(100)),
-    Column('phone', String(50)),
-    Column('avatar_url', String(500)),
-    Column('account_status', String(50), default='active'),
-    Column('trust_score', Integer, default=0),
-    Column('verification_level', String(50), default='unverified'),
-    Column('created_at', DateTime, nullable=False, server_default=func.current_timestamp()),
-    Column('updated_at', DateTime, server_default=func.current_timestamp()),
-    Column('deleted_at', DateTime)
+  # Essential info
+  Column('email', String(255), unique=True, nullable=False),
+  Column('first_name', String(100)),
+  Column('last_name', String(100)),
+  Column('phone', String(50)),
+  Column('avatar_url', String(500)),
+
+  # Timestamps
+  Column('created_at', DateTime, nullable=False, server_default=func.current_timestamp()),
 )
 
-# Main listings table with JSON category data (following  architecture)
-listings_table = Table('listings', metadata,
-    # Primary identification
-    Column('id', Integer, primary_key=True, autoincrement=True),
-    Column('listing_uuid', UUID, nullable=False, unique=True, server_default=func.gen_random_uuid()),
+# 🚀 OPTIMIZED LISTINGS TABLE
+# use jsonB for ...
+listings_table = Table(
+  'listings',
+  metadata,
+  # Identity
+  Column('id', Integer, primary_key=True, autoincrement=True),
+  Column('listing_uuid', UUID, nullable=False, unique=True, server_default=func.gen_random_uuid()),
 
-    # User reference
-    Column('owner_id', Integer, ForeignKey('users.id'), nullable=False),  # FK to users.id
-    Column('firebase_uid', String(128)),
+  # Owner (WHO posted this)
+  Column('owner_id', Integer, ForeignKey('users.id'), nullable=False),
 
-    # Basic listing info
-    Column('title', String(255), nullable=False),
-    Column('description', Text, nullable=False),
-    Column('category', String(50), nullable=False),  # homes, clothes, books, etc.
-    Column('condition', String(50), nullable=False, default='good'),
+  # Basic info
+  Column('title', String(255), nullable=False),
+  Column('description', Text, nullable=False),
+  Column('category', String(50), nullable=False),
+  Column('condition', String(50), nullable=False, default='good'),
 
-    # Location
-    Column('city', String(100), nullable=False),
-    Column('country', String(100), nullable=False),
-    Column('address', Text),
-    Column('latitude', DECIMAL(10, 8)),
-    Column('longitude', DECIMAL(11, 8)),
+  # Location
+  Column('city', String(100), nullable=False),
+  Column('country', String(100), nullable=False),
+  Column('latitude', DECIMAL(10, 8)),
+  Column('longitude', DECIMAL(11, 8)),
 
-    # Availability
-    Column('available_from', DATE),
-    Column('available_until', DATE),
-    Column('value_estimate', String(50)),
-    Column('preferred_swap_categories', ARRAY(String)),  # Array of categories
+  # Availability
+  Column('available_from', DATE),
+  Column('available_until', DATE),
+  Column('value_estimate', String(50)),
+  Column('preferred_swap_categories', ARRAY(String)),
 
-    # Contact info
-    Column('contact_name', String(255), nullable=False),
-    Column('contact_email', String(255), nullable=False),
-    Column('contact_phone', String(50)),
+  # Media
+  Column('photos', ARRAY(String)),
 
-    # Media
-    Column('photos', ARRAY(String)),  # Array of photo URLs
-    Column('main_photo', String(500)),
+  # Category-specific data
+  Column('category_data', JSONB),
 
-    # *** KEY: JSON field for category-specific data ***
-    Column('category_data', JSONB),  # All category-specific fields as JSON
+  # Status
+  Column('status', String(50), nullable=False, default='active'),
 
-    # Status & moderation
-    Column('status', String(50), nullable=False, default='active'),
-    Column('moderation_status', String(50), default='approved'),
-    Column('is_featured', Boolean, default=False),
+  # Analytics (minimal)
+  Column('view_count', Integer, default=0),
+  Column('last_activity', DateTime, server_default=func.current_timestamp()),
 
-    # Analytics
-    Column('view_count', Integer, default=0),
-    Column('inquiry_count', Integer, default=0),
-    Column('last_activity', DateTime, server_default=func.current_timestamp()),
-
-    # SEO
-    Column('slug', String(300), unique=True),
-    Column('search_tags', ARRAY(String)),
-
-    # Audit trail
-    Column('created_at', DateTime, nullable=False, server_default=func.current_timestamp()),
-    Column('updated_at', DateTime, server_default=func.current_timestamp()),
-    Column('deleted_at', DateTime),
-    Column('created_by_ip', INET),
-    Column('last_modified_by', Integer, ForeignKey('users.id'))
+  # Timestamps
+  Column('created_at', DateTime, nullable=False, server_default=func.current_timestamp()),
 )
+
+
 
 
 # Create tables using  SQLAlchemy Core + asyncpg approach
@@ -355,7 +340,25 @@ async def create_all_indexes():
     print("🎉 COMPLETE! Your SwapWithUs platform is fully optimized and ready to scale!")
         
 if __name__ == "__main__":
-    # Run complete database setup for SwapWithUs platform
+    # 🚀 STARTUP-FRIENDLY DATABASE SETUP
+    print("🚀 Setting up SwapWithUs database...")
+    
+    # Step 1: Create tables
     asyncio.run(create_users_table())
     asyncio.run(create_listings_table())
-    asyncio.run(create_all_indexes())  # Create ALL performance indexes in one organized method
+    
+    # Step 2: Choose your indexing strategy based on your startup phase:
+    
+    # 🟢 RECOMMENDED FOR STARTUPS: Only essential indexes (fast, minimal storage)
+    asyncio.run(create_essential_indexes())
+    
+    # 📈 OPTIONAL: Uncomment when you have 1000+ listings  
+    # asyncio.run(create_growth_indexes())
+    
+    # 🏢 OPTIONAL: Uncomment when you have 10,000+ listings
+    # asyncio.run(create_advanced_indexes()) 
+    
+    # 🚀 ALTERNATIVE: Create everything at once (for production-ready launch)
+    # asyncio.run(create_all_indexes())
+    
+    print("🎉 SwapWithUs database setup complete! Ready for startup launch!")
