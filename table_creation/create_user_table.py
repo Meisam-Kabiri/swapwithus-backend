@@ -1,8 +1,8 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# import sys
+# import os
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from connection_to_db import get_db_connection
+from db_connection.connection_to_db import get_db_connection
 import asyncpg
 import asyncio
 
@@ -14,19 +14,25 @@ def create_users_table_sql():
     return """
   
     CREATE TABLE IF NOT EXISTS users (
-    firebase_uid VARCHAR(128) PRIMARY KEY NOT NULL UNIQUE,
-    email VARCHAR(255) NOT NULL UNIQUE,
-    first_name VARCHAR(100),
-    last_name VARCHAR(100),
-    phone_number VARCHAR(50),
-    phone_contry_code VARCHAR(10),
-    avatar_url VARCHAR(500),
-    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    bank_verified BOOLEAN DEFAULT FALSE,
-    email_verified BOOLEAN DEFAULT FALSE,
-    phone_verified BOOLEAN DEFAULT FALSE
-    );
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+      owner_firebase_uid VARCHAR(128) PRIMARY KEY,
+      email VARCHAR(255) NOT NULL UNIQUE,
+      name VARCHAR(200),
+      profile_image VARCHAR(500),
+
+      phone_country_code VARCHAR(10),
+      phone_number VARCHAR(50),
+      is_email_verified BOOLEAN DEFAULT FALSE,
+
+      linkedin_url VARCHAR(255),
+      instagram_id VARCHAR(100),
+      facebook_id VARCHAR(100),
+
+      is_banking_verified BOOLEAN DEFAULT FALSE,
+      is_phone_verified BOOLEAN DEFAULT FALSE
+  );
 
     """
       
@@ -50,3 +56,7 @@ def main():
 if __name__ == "__main__":
     main()
     
+    
+    
+    
+

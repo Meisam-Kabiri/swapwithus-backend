@@ -1,8 +1,8 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# import sys
+# import os
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from connection_to_db import get_db_connection
+from db_connection.connection_to_db import get_db_connection
 import asyncpg
 import asyncio
 
@@ -12,84 +12,79 @@ def create_home_table_sql():
     """Return SQL statement to create the 'homes' table."""
     
     return """
-    CREATE TABLE IF NOT EXISTS homes (
-      
+  CREATE TABLE IF NOT EXISTS homes (
+      -- Primary key and timestamps
       listing_id UUID PRIMARY KEY,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 
-      firebase_uid VARCHAR(100) NOT NULL,
+      -- Owner (from frontend user data)
+      owner_firebase_uid VARCHAR(100) NOT NULL,
+      email VARCHAR(255) NULL,
+      name VARCHAR(200) NULL,
+      profile_image VARCHAR(500) NULL,
 
       -- Step 1: Property Type
-      accommodationType VARCHAR(20) NULL,
-      propertyType VARCHAR(30) NULL,
+      accommodation_type VARCHAR(20) NULL,
+      property_type VARCHAR(30) NULL,
 
       -- Step 2: Capacity & Layout
-      maxGuests INTEGER NULL,
+      max_guests INTEGER NULL,
       bedrooms INTEGER NULL,
-      fullBathrooms INTEGER NULL,
-      halfBathrooms INTEGER NULL,
-      sizeInput VARCHAR(20) NULL,
-      sizeUnit VARCHAR(10) NULL,
-      sizeM2 INTEGER NULL,
-      beds JSONB NULL,
+      full_bathrooms INTEGER NULL,
+      half_bathrooms INTEGER NULL,
+      size_input VARCHAR(20) NULL,
+      size_unit VARCHAR(10) NULL,
+      size_m2 INTEGER NULL,
 
       -- Step 3: Location
       country VARCHAR(20) NOT NULL,
       city VARCHAR(50) NOT NULL,
-      streetAddress VARCHAR(100) NULL,
-      postalCode VARCHAR(20) NULL,
+      street_address VARCHAR(100) NULL,
+      postal_code VARCHAR(20) NULL,
       latitude DECIMAL(10, 8) NULL,
       longitude DECIMAL(11, 8) NULL,
 
-      -- Step 4: Photos (separate table)
-
       -- Step 5: Essential Features
-      essentials TEXT NULL,
-      wifiMbpsDown INTEGER NULL,
-      wifiMbpsUp INTEGER NULL,
-      surroundingsType VARCHAR(30) NULL,
+      has_wifi BOOLEAN DEFAULT FALSE,
+      has_kitchen BOOLEAN DEFAULT FALSE,
+      has_washer BOOLEAN DEFAULT FALSE,
+      has_heating BOOLEAN DEFAULT FALSE,
+      has_linens BOOLEAN DEFAULT FALSE,
+      has_towels BOOLEAN DEFAULT FALSE,
+      wifi_mbps_down INTEGER NULL,
+      wifi_mbps_up INTEGER NULL,
+      surroundings_type VARCHAR(30) NULL,
 
       -- Step 6: House Rules
-      houseRules TEXT NULL,
-      mainResidence BOOLEAN NULL,
+      house_rules JSONB NULL,
+      main_residence BOOLEAN NULL,
 
       -- Step 7: Transport & Car Swap
-      openToCarSwap BOOLEAN NULL,
-      requireCarSwapMatch BOOLEAN NULL,
-      carMakeModelYear VARCHAR(100) NULL,
-      carTransmission VARCHAR(20) NULL,
-      carFuelType VARCHAR(20) NULL,
-      carConnectorType VARCHAR(20) NULL,
-      carSeats INTEGER NULL,
-      carInsuranceConfirmed BOOLEAN NULL,
-      carMinDriverAge INTEGER NULL,
-      carMileageLimit INTEGER NULL,
-      carPickupNote TEXT NULL,
+      open_to_car_swap BOOLEAN DEFAULT FALSE,
+      require_car_swap_match BOOLEAN DEFAULT FALSE,
+      car_details JSONB NULL,
 
       -- Step 8: Practical Amenities
-      kitchen TEXT NULL,
-      laundry TEXT NULL,
-      workEntertainment TEXT NULL,
-      outdoor TEXT NULL,
-      family TEXT NULL,
-      comfortClimate TEXT NULL,
-      safety TEXT NULL,
-      accessibilityFeatures TEXT NULL,
-      parkingType VARCHAR(20) NULL,
+      amenities JSONB NULL,
+      accessibility_features JSONB NULL,
+      parking_type VARCHAR(20) NULL,
 
       -- Step 9: Availability
-      isFlexible BOOLEAN NULL,
-      availableFrom DATE NULL,
-      availableUntil DATE NULL,
+      is_flexible BOOLEAN NULL,
+      available_from DATE NULL,
+      available_until DATE NULL,
 
       -- Step 10: Title and Description
       title VARCHAR(100) NOT NULL,
       description TEXT NULL,
 
       -- Status
-      status VARCHAR(20) DEFAULT 'draft'
+      status VARCHAR(20) DEFAULT 'draft',
+
+      FOREIGN KEY (owner_firebase_uid) REFERENCES users(owner_firebase_uid) ON DELETE CASCADE
   );
+
 
     """
     

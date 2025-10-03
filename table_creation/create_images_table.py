@@ -1,8 +1,8 @@
-import sys
-import os
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# import sys
+# import os
+# sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from connection_to_db import get_db_connection
+from db_connection.connection_to_db import get_db_connection
 import asyncpg
 import asyncio
 
@@ -14,18 +14,18 @@ def create_images_table_sql():
     return """
     CREATE TABLE IF NOT EXISTS images (
       
-      id SERIAL PRIMARY KEY,
-      firebase_uid VARCHAR(100) NOT NULL,
+      owner_firebase_uid VARCHAR(100) NOT NULL,
       listing_id UUID NOT NULL,           -- References any category's listing
       category VARCHAR(20) NOT NULL,       -- 'home', 'clothes', 'books', etc.
       cdn_url VARCHAR(500) NOT NULL,
-      filename VARCHAR(255) NOT NULL,
       tag VARCHAR(100) NULL,           -- 'bedroom', 'kitchen' (for homes) or 'front', 'back' (for clothes)
       description TEXT NULL,
       sort_order INTEGER DEFAULT 0,
       is_hero BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
-      updated_at TIMESTAMPTZ DEFAULT NOW()
+      updated_at TIMESTAMPTZ DEFAULT NOW(),
+
+      FOREIGN KEY (owner_firebase_uid) REFERENCES users(owner_firebase_uid) ON DELETE CASCADE
     )
     """
       

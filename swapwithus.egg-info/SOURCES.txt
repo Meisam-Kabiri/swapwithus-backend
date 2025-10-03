@@ -1,0 +1,9 @@
+setup.py
+swapwithus.egg-info/PKG-INFO
+swapwithus.egg-info/SOURCES.txt
+swapwithus.egg-info/dependency_links.txt
+swapwithus.egg-info/top_level.txt
+table_creation/__init__.py
+table_creation/create_home_table.py
+table_creation/create_images_table.py
+table_creation/create_user_table.py
