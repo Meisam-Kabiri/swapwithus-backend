@@ -78,21 +78,60 @@ async def upload_photo_to_storage(photo: UploadFile, listing_id: str, category: 
       
 
 from google.cloud import storage
-from datetime import timedelta
+from datetime import timedelta, datetime
+from google.auth.transport import requests as google_requests
+from google.auth import compute_engine, default
+import google.auth
 
 def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
-      """Convert public URL to signed URL"""
-      client = storage.Client()
-      bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
+      """Convert public URL to signed URL using IAM-based signing (works on Cloud Run)"""
+      try:
+          bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
 
-      # Extract blob_name from public URL
-      blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
+          # Extract blob_name from public URL
+          blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
 
-      bucket = client.bucket(bucket_name)
-      blob = bucket.blob(blob_name)
+          # Check if running on Cloud Run (no private key available)
+          if os.getenv('K_SERVICE'):
+              # Use IAM signBlob API - keyless signing on Cloud Run
+              from google.auth.transport import requests as google_requests
+              from google.auth import compute_engine
 
-      signed_url = blob.generate_signed_url(
-          expiration=timedelta(seconds=expires_seconds),
-          version="v4"
-      )
-      return signed_url
+              service_account_email = 'swapwithus-storage-service@project-8300.iam.gserviceaccount.com'
+
+              # Get access token from metadata server
+              credentials = compute_engine.Credentials()
+              auth_request = google_requests.Request()
+              credentials.refresh(auth_request)
+              access_token = credentials.token
+
+              # Create client and blob
+              client = storage.Client()
+              bucket = client.bucket(bucket_name)
+              blob = bucket.blob(blob_name)
+
+              # Generate signed URL using IAM signBlob (no private key needed!)
+              signed_url = blob.generate_signed_url(
+                  expiration=timedelta(seconds=expires_seconds),
+                  version="v4",
+                  service_account_email=service_account_email,
+                  access_token=access_token
+              )
+
+              return signed_url
+          else:
+              # Local development - use standard signing
+              client = storage.Client()
+              bucket = client.bucket(bucket_name)
+              blob = bucket.blob(blob_name)
+
+              signed_url = blob.generate_signed_url(
+                  expiration=timedelta(seconds=expires_seconds),
+                  version="v4"
+              )
+              return signed_url
+
+      except Exception as e:
+          logger.error(f"CRITICAL: Failed to generate signed URL: {e}")
+          # NEVER return public URLs - all images must remain private
+          raise Exception(f"Cannot generate signed URL for private image: {str(e)}")

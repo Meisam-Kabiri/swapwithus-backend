@@ -533,6 +533,7 @@ Your service account (`swapwithus-storage-service@project-8300.iam.gserviceaccou
 
 - ✅ **Storage Admin** - Access to Cloud Storage bucket for images
 - ✅ **Cloud SQL Client** - Connect to Cloud SQL database via Cloud SQL Proxy
+- ✅ **Service Account Token Creator** - Generate signed URLs for private images (self-impersonation)
 
 ### Deploy with Cloud SQL Connection
 
@@ -550,6 +551,76 @@ gcloud run deploy swapwithus-backend \
 
 **Note:** You still use the public IP (`34.88.68.46`) in your `env.yaml` for `SWAPWITHUS_DB_HOST`. The Cloud SQL Proxy handles the secure connection automatically.
 
+---
+
+## Private Image Storage with Signed URLs
+
+**CRITICAL:** All user images are stored in a **private** Cloud Storage bucket for security. To serve these images, the backend generates temporary signed URLs.
+
+### The Problem
+
+Cloud Run doesn't have private keys (by design for security). Standard signed URL generation requires a private key, which causes this error:
+
+```
+AttributeError: you need a private key to sign credentials
+```
+
+### The Solution: IAM signBlob API
+
+Use Google's IAM Credentials API to sign URLs without a private key. The service account delegates signing to Google's IAM service.
+
+**Requirements:**
+
+1. **Enable IAM Credentials API:**
+   ```bash
+   gcloud services enable iamcredentials.googleapis.com --project=project-8300
+   ```
+
+2. **Grant self-impersonation permission:**
+
+   The service account needs permission to sign tokens **as itself**.
+
+   **Via Console (CORRECT WAY):**
+
+   a. Go to: https://console.cloud.google.com/iam-admin/serviceaccounts?project=project-8300
+
+   b. Click on: `swapwithus-storage-service@project-8300.iam.gserviceaccount.com`
+
+   c. Click the **PERMISSIONS** tab
+
+   d. Scroll to "Principals with access to this service account"
+
+   e. Click **GRANT ACCESS**
+
+   f. In "New principals" enter: `swapwithus-storage-service@project-8300.iam.gserviceaccount.com` (the same service account!)
+
+   g. In "Role" select: **Service Account Token Creator**
+
+   h. Click **SAVE**
+
+   **⚠️ Important:** Adding the role via the main IAM page (not the service account page) will NOT work. The service account must be granted permission to impersonate itself.
+
+3. **The code automatically detects Cloud Run** and uses IAM signBlob:
+   ```python
+   # In gcp_storage_and_api/image_upload.py
+   if os.getenv('K_SERVICE'):  # Detects Cloud Run
+       # Use IAM signBlob API (no private key needed)
+       signed_url = blob.generate_signed_url(
+           service_account_email='swapwithus-storage-service@project-8300.iam.gserviceaccount.com',
+           access_token=token
+       )
+   ```
+
+### Verification
+
+After deploying, check logs for successful signed URL generation. Images should load on the frontend.
+
+**Test:**
+```bash
+curl "https://swapwithus-backend-928070808987.europe-west1.run.app/api/homes?owner_firebase_uid=YOUR_UID"
+```
+
+Look for `hero_image_url` with a signed URL (contains query parameters like `X-Goog-Algorithm`, `X-Goog-Signature`, etc.).
 
 ---
 
