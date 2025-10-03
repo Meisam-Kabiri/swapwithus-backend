@@ -1,3 +1,4 @@
 *test
 test*
-*.json
+*.json.env
+env.yaml
