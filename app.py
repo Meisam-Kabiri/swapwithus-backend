@@ -141,7 +141,7 @@ class firebase_user_if_not_exists(BaseModel):
     owner_firebase_uid: str
     email: Optional[str] = None
     name: Optional[str] = None
-    profileImage: Optional[str] = None
+    profile_image: Optional[str] = None
     
   # FormData structure:
   # listing: {title, bedrooms, city, ...} // JSON string
@@ -286,7 +286,7 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
     
     
     create_user_query = """
-                        insert into users (owner_firebase_uid, email, name, profileImage, createdAt, updatedAt)
+                        insert into users (owner_firebase_uid, email, name, profile_image, created_at, updated_at)
                         values ($1, $2, $3, $4, NOW(), NOW()) ON CONFLICT (owner_firebase_uid) DO NOTHING
                         """
 
@@ -299,7 +299,7 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
     
 
     db_manager = DbManager()
-    await _db_pool.execute(create_user_query, user_data_dict.get("owner_firebase_uid"), user_data_dict.get("email"), user_data_dict.get("name"), user_data_dict.get("profileImage"))
+    await _db_pool.execute(create_user_query, user_data_dict.get("owner_firebase_uid"), user_data_dict.get("email"), user_data_dict.get("name"), user_data_dict.get("profile_image"))
     await db_manager.create_record_in_table(_db_pool, listing_data_dict, "homes")
  
     image_table_records = []
@@ -708,12 +708,12 @@ if __name__ == "__main__":
   #   "firebase_uid": "qWMimoFaXQf5oTHEnNyD1J3L6sH2",
   #   "email": "user@example.com",
   #   "name": "John Doe",
-  #   "profileImage": "https://...",
+  #   "profile_image": "https://...",
   #   "isEmailVerified": true
   # }
 
   # SQL:
-  # INSERT INTO users (firebase_uid, email, name, profileImage, isEmailVerified, createdAt, updatedAt)
+  # INSERT INTO users (firebase_uid, email, name, profile_image, isEmailVerified, created_at, updated_at)
   # VALUES (...)
   # RETURNING *;
 
@@ -732,12 +732,12 @@ if __name__ == "__main__":
   #   "linkedinUrl": "...",
   #   "instagramId": "...",
   #   "facebookId": "...",
-  #   "profileImage": "..."
+  #   "profile_image": "..."
   # }
 
   # SQL:
   # UPDATE users
-  # SET name = $1, phoneCountryCode = $2, phoneNumber = $3, ..., updatedAt = NOW()
+  # SET name = $1, phoneCountryCode = $2, phoneNumber = $3, ..., updated_at = NOW()
   # WHERE firebase_uid = $10
   # RETURNING *;
 
@@ -760,11 +760,11 @@ if __name__ == "__main__":
 
   # 1. CREATE User - POST /api/users
   # - Field: owner_firebase_uid ✅
-  # - Fields: email, name, profileImage, isEmailVerified
+  # - Fields: email, name, profile_image, isEmailVerified
 
   # 2. UPDATE User - PATCH /api/users/{firebase_uid} ✅
   # - Uses PATCH (partial update)
-  # - Fields: name, phoneCountryCode, phoneNumber, linkedinUrl, instagramId, facebookId, profileImage
+  # - Fields: name, phoneCountryCode, phoneNumber, linkedinUrl, instagramId, facebookId, profile_image
 
   # 3. DELETE User - DELETE /api/users/{firebase_uid} ✅
   # - Deletes user and all related data
