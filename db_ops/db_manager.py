@@ -36,8 +36,8 @@ class DbManager:
                   raise
 
 
-
-      async def update_record_in_table(pool: asyncpg.Pool, where_column: str, where_value: str, data: dict, table_name: str) -> None:
+      @staticmethod              
+      async def update_record_in_table(pool: asyncpg.Pool,  data: dict, table_name: str, where_column: str, where_value: str, ) -> None:
           """
           Update record by ID in specified table with data from dict
           """
@@ -51,7 +51,7 @@ class DbManager:
                   value = json.dumps(value)
               set_clauses.append(f"{key} = ${i+1}")
               values.append(value)
-
+          set_clauses.append(f"updated_at = NOW()")
           set_statement = ', '.join(set_clauses)
           values.append(where_value)  # ID is the last parameter
           query = f"UPDATE {table_name} SET {set_statement} WHERE {where_column} = ${len(values)}"

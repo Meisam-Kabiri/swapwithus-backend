@@ -34,6 +34,7 @@ def create_users_table_sql():
       is_phone_verified BOOLEAN DEFAULT FALSE
   );
 
+
     """
       
     

@@ -84,6 +84,11 @@ def create_home_table_sql():
 
       FOREIGN KEY (owner_firebase_uid) REFERENCES users(owner_firebase_uid) ON DELETE CASCADE
   );
+  
+   -- Indexes for users
+  CREATE INDEX IF NOT EXISTS idx_homes_owner ON homes(owner_firebase_uid);
+  CREATE INDEX IF NOT EXISTS idx_homes_country_city ON homes(country, city);
+  CREATE INDEX IF NOT EXISTS idx_homes_created_at ON homes(created_at DESC);
 
 
     """

@@ -17,16 +17,26 @@ def create_images_table_sql():
       owner_firebase_uid VARCHAR(100) NOT NULL,
       listing_id UUID NOT NULL,           -- References any category's listing
       category VARCHAR(20) NOT NULL,       -- 'home', 'clothes', 'books', etc.
-      cdn_url VARCHAR(500) NOT NULL,
+      public_url VARCHAR(500) NOT NULL,
       tag VARCHAR(100) NULL,           -- 'bedroom', 'kitchen' (for homes) or 'front', 'back' (for clothes)
-      description TEXT NULL,
+      caption TEXT NULL,
       sort_order INTEGER DEFAULT 0,
       is_hero BOOLEAN DEFAULT FALSE,
       created_at TIMESTAMPTZ DEFAULT NOW(),
       updated_at TIMESTAMPTZ DEFAULT NOW(),
 
-      FOREIGN KEY (owner_firebase_uid) REFERENCES users(owner_firebase_uid) ON DELETE CASCADE
-    )
+      FOREIGN KEY (owner_firebase_uid) REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
+      FOREIGN KEY (listing_id) REFERENCES homes(listing_id) ON DELETE CASCADE, 
+      UNIQUE (listing_id, public_url)
+
+    );
+    
+    -- Indexes for images
+    CREATE INDEX IF NOT EXISTS idx_images_listing ON images(listing_id);
+    CREATE INDEX IF NOT EXISTS idx_images_owner ON images(owner_firebase_uid);
+    CREATE INDEX IF NOT EXISTS idx_images_category_listing ON images(category, listing_id);
+    CREATE INDEX IF NOT EXISTS idx_images_sort_order ON images(listing_id, sort_order);
+
     """
       
     

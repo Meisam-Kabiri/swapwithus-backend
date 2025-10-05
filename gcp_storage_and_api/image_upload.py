@@ -135,3 +135,29 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
           logger.error(f"CRITICAL: Failed to generate signed URL: {e}")
           # NEVER return public URLs - all images must remain private
           raise Exception(f"Cannot generate signed URL for private image: {str(e)}")
+
+
+def delete_image_from_storage(public_url: str) -> bool:
+    """Delete image from Google Cloud Storage using public URL"""
+    try:
+        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
+
+        # Extract blob_name from public URL
+        # Format: https://storage.googleapis.com/bucket-name/path/to/file.jpg
+        blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
+
+        # Initialize storage client
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+
+        # Delete the blob
+        blob.delete()
+
+        logger.info(f"Successfully deleted image: {blob_name}")
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to delete image from storage: {e}")
+        # Don't raise - deletion failure shouldn't block listing deletion
+        return False
