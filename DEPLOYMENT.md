@@ -540,6 +540,9 @@ Your service account (`swapwithus-storage-service@project-8300.iam.gserviceaccou
 After adding the role, deploy with Cloud SQL Proxy:
 
 ```bash
+ --gcloud builds submit --tag gcr.io/project-8300/swapwithus-backend
+``` 
+```bash
 gcloud run deploy swapwithus-backend \
   --image gcr.io/project-8300/swapwithus-backend \
   --platform managed \

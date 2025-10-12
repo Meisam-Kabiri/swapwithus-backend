@@ -9,6 +9,7 @@ from db_ops.db_manager import DbManager
 from db_connection.connection_to_db import get_db_pool
     
 from gcp_storage_and_api.image_upload import upload_photo_to_storage, get_signed_url, delete_image_from_storage
+from gcp_storage_and_api.singning_cookies import generate_signed_cookie
 from contextlib import asynccontextmanager
 
 import logging
@@ -59,11 +60,12 @@ class HomeListingCreate(BaseModel):
       # Step 2: Capacity & Layout (Optional except max_guests)
       max_guests: int
       bedrooms: Optional[int] = None
-      full_bathrooms: Optional[int] = None
-      half_bathrooms: Optional[int] = None
+      # full_bathrooms: Optional[int] = None
+      # half_bathrooms: Optional[int] = None
       size_input: Optional[str] = None
       size_unit: Optional[str] = None
       size_m2: Optional[int] = None
+      surroundings_type: Optional[str] = None
 
       # Step 3: Location (Required: country, city; Optional: rest)
       country: str
@@ -72,38 +74,28 @@ class HomeListingCreate(BaseModel):
       postal_code: Optional[str] = None
       latitude: Optional[float] = None
       longitude: Optional[float] = None
+      
 
-      # Step 5: Essential Features
-      has_wifi: bool = False
-      has_kitchen: bool = False
-      has_washer: bool = False
-      has_heating: bool = False
-      has_linens: bool = False
-      has_towels: bool = False
-      wifi_mbps_down: Optional[int] = None
-      wifi_mbps_up: Optional[int] = None
-      surroundings_type: Optional[str] = None
-
-      # Step 6: House Rules
+      # Step 5: House Rules
       house_rules: Optional[List[str]] = Field(default_factory=list)
       main_residence: Optional[bool] = None
 
-      # Step 7: Transport & Car Swap
+      # Step 6: Transport & Car Swap
       open_to_car_swap: bool = False
       require_car_swap_match: bool = False
       car_details: Optional[Dict[str, Any]] = None
 
-      # Step 8: Practical Amenities
+      # Step 7:  Available Amenities
       amenities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
       accessibility_features: Optional[List[str]] = Field(default_factory=list)
       parking_type: Optional[str] = None
 
-      # Step 9: Availability
+      # Step 8: Availability
       is_flexible: Optional[bool] = None
       available_from: Optional[date] = None
       available_until: Optional[date] = None
 
-      # Step 10: Title and Description (Required: title; Optional: description)
+      # Step 9: Title and Description (Required: title; Optional: description)
       title: str
       description: Optional[str] = None
 
@@ -117,12 +109,15 @@ class imageMetadataItems(BaseModel):
 
   # Just for editing existing listing:
   public_url: Optional[str] = None
+  cdn_url: Optional[str] = None
   # deleted_public_urls: Optional[List[str]] = []
   
 class ImageMetadataCollection(BaseModel):
       images_metadata: Optional[List[imageMetadataItems]] = []
       deleted_public_urls: Optional[List[str]] = []
 
+class full_home_listing(HomeListingCreate):
+  images: Optional[List[imageMetadataItems]] = []
 class UserCreate(BaseModel):
     owner_firebase_uid: str
     email: str
@@ -166,7 +161,7 @@ async def get_home_listings(owner_firebase_uid: str):
       """
 
       query_images = """
-      SELECT public_url, tag, caption, is_hero, sort_order 
+      SELECT public_url, cdn_url, tag, caption, is_hero, sort_order 
       FROM images 
       WHERE owner_firebase_uid = $1 AND category = 'home' AND listing_id = $2
       ORDER BY sort_order
@@ -181,11 +176,11 @@ async def get_home_listings(owner_firebase_uid: str):
               # Fetch images for this specific listing
               image_rows = await conn.fetch(query_images, owner_firebase_uid, home_row['listing_id'])
               image_rows = [dict(img) for img in image_rows]
-              for i, img in enumerate(image_rows):
-                  public_url = img['public_url']
-                  signed_url = get_signed_url(public_url)
-                  image_rows[i]['signed_url'] = signed_url
-                  logger.info(signed_url)
+              # for i, img in enumerate(image_rows):
+              #     public_url = img['public_url']
+              #     signed_url = get_signed_url(public_url)
+              #     image_rows[i]['signed_url'] = signed_url
+              #     logger.info(signed_url)
 
               # Convert home row to dict
               listing = dict(home_row)
@@ -196,9 +191,9 @@ async def get_home_listings(owner_firebase_uid: str):
               # Find hero image, or use first image as fallback
               hero_image = next((img for img in image_rows if img['is_hero']), None)
               if hero_image:
-                  listing['hero_image_url'] = hero_image['signed_url']
+                  listing['hero_image_url'] = hero_image['cdn_url']
               elif image_rows:  # ← If no hero, use first image
-                  listing['hero_image_url'] = image_rows[0]['signed_url']
+                  listing['hero_image_url'] = image_rows[0]['cdn_url']
               else:  # ← No images at all
                   listing['hero_image_url'] = None
 
@@ -304,12 +299,13 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
  
     image_table_records = []
     for index, metadata in enumerate(images_metadata):
-      image_url = await upload_photo_to_storage(images[index], listing_id = generated_listing_id, category="home")
+      image_url, cdn_url = await upload_photo_to_storage(images[index], listing_id = generated_listing_id, category="home")
       image_record = metadata.copy()
       image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
       image_record['listing_id'] = generated_listing_id
       image_record['category'] = 'home'
       image_record['public_url'] = image_url
+      image_record['cdn_url'] = cdn_url
       
       image_table_records.append(image_record)
     
@@ -320,12 +316,13 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
           listing_id,
           category,
           public_url,
+          cdn_url,
           tag,
           caption,
           is_hero,
           sort_order
       )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
   """
   
     # Prepare data as list of tuples
@@ -335,6 +332,7 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
             record['listing_id'],
             record['category'],
             record['public_url'],
+            record['cdn_url'],
             record['tag'],
             record['caption'],  # caption goes into description column
             record['is_hero'],
@@ -443,7 +441,7 @@ async def update_home_listing(
             image_record = metadata.copy()
             print("this is public url:", image_record.get('public_url', ''))
             if image_record['public_url'] == '':
-              image_record['public_url'] = await upload_photo_to_storage(images[image_index], listing_id=listing_id, category="home")
+              image_record['public_url'], image_record['cdn_url'] = await upload_photo_to_storage(images[image_index], listing_id=listing_id, category="home")
               image_index += 1
             image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
             image_record['listing_id'] = listing_id
@@ -463,12 +461,13 @@ async def update_home_listing(
                       listing_id,
                       category,
                       public_url,
+                      cdn_url,
                       tag,
                       caption,
                       is_hero,
                       sort_order
                   )
-                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8) 
+                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
                   ON CONFLICT (public_url, listing_id) DO UPDATE SET updated_at = NOW()
               """
 
@@ -478,6 +477,7 @@ async def update_home_listing(
                       record['listing_id'],
                       record['category'],
                       record['public_url'],
+                      record['cdn_url'],
                       record['tag'],
                       record['caption'],
                       record['is_hero'],
@@ -575,6 +575,78 @@ async def update_user(uid: str, user: UserUpdate):
       logging.error("Error type: %s", type(e).__name__)
       logging.error("Error message: %s", str(e))
       logging.error("=" * 50)
+
+
+
+
+@app.get("/browse")
+async def browse_homes(response_model: List[full_home_listing] = []):
+  try:
+    print("Inside browse homes")
+    query_home = """
+      SELECT 
+      h.*,
+      json_agg(
+        json_build_object(
+          'id', i.listing_id,
+          'public_url', i.public_url,
+          'cdn_url', i.cdn_url,
+          'tag', i.tag,
+          'caption', i.caption,
+          'is_hero', i.is_hero
+        ) ORDER BY i.is_hero DESC  -- <-- true comes first
+      ) AS images
+    FROM homes h
+    LEFT JOIN images i ON i.listing_id = h.listing_id
+    GROUP BY h.listing_id;
+
+      """
+    
+    expiration = 3600  # 1 hour
+    cookies_value = generate_signed_cookie(expiration=3600)
+    logging.info("Generated cookies value:", cookies_value)
+    cookies_response = {"cdn_cookies": {
+              "name": "Cloud-CDN-Cookie",
+              "value": cookies_value,
+              "expires": expiration,
+              "domain": ".swapwithus.com"
+          }}
+
+    async with _db_pool.acquire() as conn:
+      homes_list = await conn.fetch(query_home)
+      from pprint import pprint
+      import json
+      # homes_list = [dict(l) for l in homes_list]
+      # pprint(homes_list)
+      # res = json.dumps(homes_list, indent=2, default=str)
+      if not homes_list:
+          return JSONResponse(status_code=404, content={"message": "No homes found"})
+        
+      # After fetching from DB
+      homes_dict = [dict(home) for home in homes_list]
+
+      # Parse the images JSON string for each home
+      for home in homes_dict:
+          if isinstance(home.get('images'), str):
+              home['images'] = json.loads(home['images'])
+
+      return {"homes": homes_dict, **cookies_response}
+      # return {"homes": homes_list, **cookies_response}
+    
+  except Exception as e:
+      import traceback
+      logging.error("=" * 50)
+      logging.error("ERROR OCCURRED:")
+      logging.error("Error type: %s", type(e).__name__)
+      logging.error("Error message: %s", str(e))
+      logging.error("=" * 50)
+      raise HTTPException(status_code=500, detail="Internal Server Error")
+
+
+from fastapi import Response
+import httpx
+
+
 
 if __name__ == "__main__":
   

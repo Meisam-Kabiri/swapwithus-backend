@@ -18,6 +18,7 @@ def create_images_table_sql():
       listing_id UUID NOT NULL,           -- References any category's listing
       category VARCHAR(20) NOT NULL,       -- 'home', 'clothes', 'books', etc.
       public_url VARCHAR(500) NOT NULL,
+      cdn_url VARCHAR(500) NOT NULL,
       tag VARCHAR(100) NULL,           -- 'bedroom', 'kitchen' (for homes) or 'front', 'back' (for clothes)
       caption TEXT NULL,
       sort_order INTEGER DEFAULT 0,

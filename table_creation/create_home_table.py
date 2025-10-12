@@ -31,11 +31,10 @@ def create_home_table_sql():
       -- Step 2: Capacity & Layout
       max_guests INTEGER NULL,
       bedrooms INTEGER NULL,
-      full_bathrooms INTEGER NULL,
-      half_bathrooms INTEGER NULL,
       size_input VARCHAR(20) NULL,
       size_unit VARCHAR(10) NULL,
       size_m2 INTEGER NULL,
+      surroundings_type VARCHAR(30) NULL,
 
       -- Step 3: Location
       country VARCHAR(20) NOT NULL,
@@ -45,37 +44,28 @@ def create_home_table_sql():
       latitude DECIMAL(10, 8) NULL,
       longitude DECIMAL(11, 8) NULL,
 
-      -- Step 5: Essential Features
-      has_wifi BOOLEAN DEFAULT FALSE,
-      has_kitchen BOOLEAN DEFAULT FALSE,
-      has_washer BOOLEAN DEFAULT FALSE,
-      has_heating BOOLEAN DEFAULT FALSE,
-      has_linens BOOLEAN DEFAULT FALSE,
-      has_towels BOOLEAN DEFAULT FALSE,
-      wifi_mbps_down INTEGER NULL,
-      wifi_mbps_up INTEGER NULL,
-      surroundings_type VARCHAR(30) NULL,
+  
 
-      -- Step 6: House Rules
+      -- Step 5: House Rules
       house_rules JSONB NULL,
       main_residence BOOLEAN NULL,
 
-      -- Step 7: Transport & Car Swap
+      -- Step 6: Transport & Car Swap
       open_to_car_swap BOOLEAN DEFAULT FALSE,
       require_car_swap_match BOOLEAN DEFAULT FALSE,
       car_details JSONB NULL,
 
-      -- Step 8: Practical Amenities
+      -- Step 7:  Available Amenities
       amenities JSONB NULL,
       accessibility_features JSONB NULL,
       parking_type VARCHAR(20) NULL,
 
-      -- Step 9: Availability
+      -- Step 8: Availability
       is_flexible BOOLEAN NULL,
       available_from DATE NULL,
       available_until DATE NULL,
 
-      -- Step 10: Title and Description
+      -- Step 9: Title and Description
       title VARCHAR(100) NOT NULL,
       description TEXT NULL,
 

@@ -2,3 +2,5 @@
 test*
 *.json.env
 env.yaml
+claude*
+CLAUDE*

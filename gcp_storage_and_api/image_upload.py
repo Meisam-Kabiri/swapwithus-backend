@@ -62,11 +62,13 @@ async def upload_photo_to_storage(photo: UploadFile, listing_id: str, category: 
         # The bucket should be configured for public read access at bucket level
 
         # Return public URL
+        cdn = "cdn.swapwithus.com"
+        cdn_url = f"https://{cdn}/{blob_name}"
         public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
 
         logger.info(f"Successfully uploaded photo: {blob_name}")
       
-        return public_url
+        return public_url, cdn_url
 
     except GoogleCloudError as e:
         logger.error(f"Google Cloud Storage error: {e}")
@@ -161,3 +163,58 @@ def delete_image_from_storage(public_url: str) -> bool:
         logger.error(f"Failed to delete image from storage: {e}")
         # Don't raise - deletion failure shouldn't block listing deletion
         return False
+      
+      
+      
+# Solution 1: Use Cloud CDN Signed Cookies (Highly Recommended)
+# Of course. This is an excellent and very common performance problem. You've correctly identified that making a backend call to generate a signed URL for every single image is a major bottleneck. The user's browser has to wait for your server's response before it can even start fetching the image.
+
+# Here is a breakdown of the problem and the best solutions, ordered from most recommended to least.
+
+# The Core Problem: The Latency Chain
+# Your current process looks like this:
+
+# Frontend: "I need to display image.jpg."
+
+# Frontend -> Backend: Makes an API call, "Please give me a URL for image.jpg."
+
+# Backend:
+
+# Receives the request.
+
+# Uses its service account credentials to talk to Google Cloud Storage.
+
+# Generates a unique, short-lived signed URL.
+
+# Backend -> Frontend: Sends the signed URL back.
+
+# Frontend: Finally receives the URL (https://storage.googleapis.com/...&Signature=...)
+
+# Frontend -> Google CDN/GCS: Starts downloading the image.
+
+# The delay is in steps 2, 3, and 4. You want to eliminate them as much as possible.
+
+# Solution 1: Use Cloud CDN Signed Cookies (Highly Recommended)
+# This is the most robust and scalable solution for your use case. Instead of authorizing access to one URL at a time, you grant the user a temporary "session pass" in the form of a cookie that allows them to access a whole set of files.
+
+# How it Works:
+
+# User Logs In (or starts a session): Your backend generates a single, cryptographically signed cookie. This cookie doesn't authorize a specific image, but rather a URL prefix, for example: https://your-cdn-domain.com/images/user/12345/*.
+
+# Set the Cookie: Your backend sends this cookie to the user's browser with the Set-Cookie header.
+
+# Frontend Requests Images: Now, your frontend can use regular, clean URLs in the HTML:
+
+# HTML
+
+# <img src="https://your-cdn-domain.com/images/user/12345/profile.jpg">
+# <img src="https://your-cdn-domain.com/images/user/12345/post1.jpg">
+# <img src="https://your-cdn-domain.com/images/user/12345/post2.jpg">
+# CDN Validates: The browser automatically attaches the signed cookie to each request. The Google Cloud CDN edge nodes validate the cookie. If it's valid, the CDN serves the image (from its cache or from your GCS bucket). Your backend is never involved.
+
+
+# How to Implement:
+
+# Enable Signed Cookies on your CDN Backend Service: In the Google Cloud Console, go to your Load Balancer / CDN settings and enable Signed Cookies for the backend service or backend bucket that points to your GCS bucket.
+
+# Create a Signing Key: Create a key for your backend service. This is what your backend will use to sign the cookies.
