@@ -8,3 +8,4 @@ aiohttp==3.12.15
 google-cloud-storage==3.3.1
 google-cloud-iam==2.15.2
 uvicorn==0.35.0
+pillow==11.3.0

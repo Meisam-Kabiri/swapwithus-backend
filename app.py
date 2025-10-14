@@ -8,8 +8,8 @@ from fastapi.middleware.cors import CORSMiddleware
 from db_ops.db_manager import DbManager
 from db_connection.connection_to_db import get_db_pool
     
-from gcp_storage_and_api.image_upload import upload_photo_to_storage, get_signed_url, delete_image_from_storage
-from gcp_storage_and_api.singning_cookies import generate_signed_cookie
+from gcp_storage_and_api.image_upload import upload_photo_to_storage, delete_image_from_storage
+from gcp_storage_and_api.singning_cookies import generate_signed_cookie, make_urlprefix_token, append_token_to_url
 from contextlib import asynccontextmanager
 
 import logging
@@ -161,7 +161,7 @@ async def get_home_listings(owner_firebase_uid: str):
       """
 
       query_images = """
-      SELECT public_url, cdn_url, tag, caption, is_hero, sort_order 
+      SELECT public_url,  tag, caption, is_hero, sort_order 
       FROM images 
       WHERE owner_firebase_uid = $1 AND category = 'home' AND listing_id = $2
       ORDER BY sort_order
@@ -176,11 +176,12 @@ async def get_home_listings(owner_firebase_uid: str):
               # Fetch images for this specific listing
               image_rows = await conn.fetch(query_images, owner_firebase_uid, home_row['listing_id'])
               image_rows = [dict(img) for img in image_rows]
-              # for i, img in enumerate(image_rows):
-              #     public_url = img['public_url']
-              #     signed_url = get_signed_url(public_url)
-              #     image_rows[i]['signed_url'] = signed_url
-              #     logger.info(signed_url)
+              token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
+              for i, img in enumerate(image_rows):
+                  public_url = img['public_url']
+                  signed_url = append_token_to_url(public_url, token_prefix)
+                  image_rows[i]['signed_url'] = signed_url
+                  logger.info(signed_url)
 
               # Convert home row to dict
               listing = dict(home_row)
@@ -191,9 +192,9 @@ async def get_home_listings(owner_firebase_uid: str):
               # Find hero image, or use first image as fallback
               hero_image = next((img for img in image_rows if img['is_hero']), None)
               if hero_image:
-                  listing['hero_image_url'] = hero_image['cdn_url']
+                  listing['hero_image_url'] = hero_image['signed_url']
               elif image_rows:  # ← If no hero, use first image
-                  listing['hero_image_url'] = image_rows[0]['cdn_url']
+                  listing['hero_image_url'] = image_rows[0]['signed_url']
               else:  # ← No images at all
                   listing['hero_image_url'] = None
 
@@ -245,9 +246,12 @@ async def delete_home_listing(listing_id: str):
 
   async with _db_pool.acquire() as conn:
     try:
-      urls = await conn.fetch(query_select_images, listing_id)
-      await conn.execute(query_delete_home, listing_id)
-      logger.info(f"Successfully deleted listing: {listing_id}")
+      async with conn.transaction():
+        urls = await conn.fetch(query_select_images, listing_id)
+        await conn.execute(query_delete_home, listing_id)
+        logger.info(f"Successfully deleted listing: {listing_id}")
+
+      # Delete from storage after DB transaction
       for url in urls:
         delete_image_from_storage(url['public_url'])
       logger.info(f"Successfully deleted images from storage for listing: {listing_id}")
@@ -262,24 +266,25 @@ async def delete_home_listing(listing_id: str):
 
 @app.post("/api/homes")
 async def create_home_listing(listing:str =  Form(...), images: List[UploadFile] = File(...)):
+  uploaded_urls = []
   try:
     # Simulate saving to database and getting an ID
     listing_data = HomeListingCreate.model_validate_json(listing)
     listing_data_dict = listing_data.model_dump(exclude_none=True)
-    
+
     user_data = firebase_user_if_not_exists.model_validate_json(listing)
     user_data_dict = user_data.model_dump(exclude_none=True)
-    
+
     metadata_collection = ImageMetadataCollection.model_validate_json(listing)
     metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
     images_metadata = metadata_collection_dict['images_metadata']
 
     # deleted_urls = metadata_collection.deleted_public_urls
-    
-    
-    
-    
-    
+
+
+
+
+
     create_user_query = """
                         insert into users (owner_firebase_uid, email, name, profile_image, created_at, updated_at)
                         values ($1, $2, $3, $4, NOW(), NOW()) ON CONFLICT (owner_firebase_uid) DO NOTHING
@@ -288,66 +293,68 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
 
     generated_listing_id = str(uuid.uuid4())
     listing_data_dict["listing_id"] = generated_listing_id
-    
+
     print("New listing data:", listing_data_dict)
     print("Received image files:", [file.filename for file in images])
-    
 
-    db_manager = DbManager()
-    await _db_pool.execute(create_user_query, user_data_dict.get("owner_firebase_uid"), user_data_dict.get("email"), user_data_dict.get("name"), user_data_dict.get("profile_image"))
-    await db_manager.create_record_in_table(_db_pool, listing_data_dict, "homes")
- 
-    image_table_records = []
-    for index, metadata in enumerate(images_metadata):
-      image_url, cdn_url = await upload_photo_to_storage(images[index], listing_id = generated_listing_id, category="home")
-      image_record = metadata.copy()
-      image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
-      image_record['listing_id'] = generated_listing_id
-      image_record['category'] = 'home'
-      image_record['public_url'] = image_url
-      image_record['cdn_url'] = cdn_url
-      
-      image_table_records.append(image_record)
-    
-    
-    insert_query = """
-      INSERT INTO images (
-          owner_firebase_uid,
-          listing_id,
-          category,
-          public_url,
-          cdn_url,
-          tag,
-          caption,
-          is_hero,
-          sort_order
-      )
-      VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-  """
-  
-    # Prepare data as list of tuples
-    image_data = [
-        (
-            record['owner_firebase_uid'],
-            record['listing_id'],
-            record['category'],
-            record['public_url'],
-            record['cdn_url'],
-            record['tag'],
-            record['caption'],  # caption goes into description column
-            record['is_hero'],
-            record['sort_order']
-        )
-        for record in image_table_records
-    ]
-    
-    await _db_pool.executemany(insert_query, image_data)
+
+    async with _db_pool.acquire() as conn:
+      async with conn.transaction():
+        db_manager = DbManager()
+        await conn.execute(create_user_query, user_data_dict.get("owner_firebase_uid"), user_data_dict.get("email"), user_data_dict.get("name"), user_data_dict.get("profile_image"))
+        await db_manager.create_record_in_table(_db_pool, listing_data_dict, "homes")
+
+        # TODO: optimize the image before uploading them using the method optimize_image.py (based on pillow library)
+        image_table_records = []
+        for index, metadata in enumerate(images_metadata):
+          image_url = await upload_photo_to_storage(images[index], listing_id = generated_listing_id, category="home")
+          uploaded_urls.append(image_url)
+          image_record = metadata.copy()
+          image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
+          image_record['listing_id'] = generated_listing_id
+          image_record['category'] = 'home'
+          image_record['public_url'] = image_url
+
+
+          image_table_records.append(image_record)
+
+
+        insert_query = """
+          INSERT INTO images (
+              owner_firebase_uid,
+              listing_id,
+              category,
+              public_url,
+              tag,
+              caption,
+              is_hero,
+              sort_order
+          )
+          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+      """
+
+        # Prepare data as list of tuples
+        image_data = [
+            (
+                record['owner_firebase_uid'],
+                record['listing_id'],
+                record['category'],
+                record['public_url'],
+                record['tag'],
+                record['caption'],  # caption goes into description column
+                record['is_hero'],
+                record['sort_order']
+            )
+            for record in image_table_records
+        ]
+
+        await conn.executemany(insert_query, image_data)
 
 
 
     # Here you would save the listing data and images to your database/storage
     return JSONResponse(status_code=201, content={"id": str(generated_listing_id), "message": "Home listing created successfully"})
-  
+
   except Exception as e:
           import traceback
           logger.error("=" * 50)
@@ -356,6 +363,14 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
           logger.error("Error message: %s", str(e))
           logger.error("=" * 50)
           logger.error("FULL TRACEBACK: %s", traceback.format_exc())
+
+          # Clean up uploaded images on failure
+          for url in uploaded_urls:
+            try:
+              delete_image_from_storage(url)
+            except Exception as cleanup_error:
+              logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
+
           raise HTTPException(status_code=500, detail=str(e))
 
 # When: After Firebase signup (email/password, Google, or Facebook)
@@ -382,22 +397,23 @@ async def update_home_listing(
       listing: str = Form(...),
       images: List[UploadFile] = File(default=[])
       ):
+      uploaded_urls = []
       try:
           # Parse form data
           # print("Received listing JSON:", listing)
           listing_data = HomeListingCreate.model_validate_json(listing)
           listing_data_dict = listing_data.model_dump(exclude_none=True)
-          
-          
-          
+
+
+
           metadata_collection = ImageMetadataCollection.model_validate_json(listing)
           metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
           images_metadata = metadata_collection_dict['images_metadata']
           deleted_urls = metadata_collection_dict.get('deleted_public_urls', None)
-                
-          
-          
-          
+
+
+
+
           print("===================================")
           print("metadata images is :", images_metadata)
 
@@ -411,82 +427,93 @@ async def update_home_listing(
           # print("Received new image files:", len(images))
           # print("Deleted URLs:", deleted_urls)
 
-          db_manager = DbManager()
+          async with _db_pool.acquire() as conn:
+            async with conn.transaction():
+              db_manager = DbManager()
 
-          # 1. Update listing data in homes table
-          await db_manager.update_record_in_table(
-              _db_pool,
-              listing_data_dict,
-              "homes",
-              "listing_id",
-              listing_id
-          )
+              # 1. Update listing data in homes table
+              await db_manager.update_record_in_table(
+                  _db_pool,
+                  listing_data_dict,
+                  "homes",
+                  "listing_id",
+                  listing_id
+              )
 
-          # 2. Delete removed images from storage and image DB
+              # 2. Delete removed images from DB
+              if deleted_urls:
+                  for public_url in deleted_urls:
+                      try:
+                          await conn.execute("DELETE FROM images WHERE public_url = $1 AND listing_id = $2", public_url, listing_id)
+                      except Exception as e:
+                          print(f"Error deleting image {public_url}: {e}")
+
+
+
+              image_records = []
+
+              # print("Public URLs from metadata:", public_urls)
+              image_index = 0
+              for metadata in images_metadata:
+                image_record = metadata.copy()
+                print("this is public url:", image_record.get('public_url', ''))
+                if image_record['public_url'] == '':
+                  image_record['public_url'] = await upload_photo_to_storage(images[image_index], listing_id=listing_id, category="home")
+                  uploaded_urls.append(image_record['public_url'])
+                  image_index += 1
+                image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
+                image_record['listing_id'] = listing_id
+                image_record['category'] = 'home'
+                image_records.append(image_record)
+              print("Final image records to insert/update:", image_records)
+
+
+
+              if image_records:
+                  insert_query = """
+                      INSERT INTO images (
+                          owner_firebase_uid,
+                          listing_id,
+                          category,
+                          public_url,
+                          tag,
+                          caption,
+                          is_hero,
+                          sort_order
+                      )
+                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+                      ON CONFLICT (public_url, listing_id) DO UPDATE SET
+                      tag = EXCLUDED.tag,
+                      caption = EXCLUDED.caption,
+                      is_hero = EXCLUDED.is_hero,
+                      sort_order = EXCLUDED.sort_order,
+                      updated_at = NOW()
+
+                  """
+
+                  image_data = [
+                      (
+                          record['owner_firebase_uid'],
+                          record['listing_id'],
+                          record['category'],
+                          record['public_url'],
+                          record['tag'],
+                          record['caption'],
+                          record['is_hero'],
+                          record['sort_order']
+                      )
+                      for record in image_records
+                  ]
+
+                  await conn.executemany(insert_query, image_data)
+
+          # Delete removed images from storage after successful DB transaction
           if deleted_urls:
               for public_url in deleted_urls:
                   try:
                       await delete_image_from_storage(public_url)
-                      await _db_pool.execute("DELETE FROM images WHERE public_url = $1 AND listing_id = $2", public_url, listing_id)
                   except Exception as e:
-                      print(f"Error deleting image {public_url}: {e}")
-                      
-                      
-
-          image_records = []
-      
-          # print("Public URLs from metadata:", public_urls)
-          image_index = 0
-          for metadata in images_metadata:
-            image_record = metadata.copy()
-            print("this is public url:", image_record.get('public_url', ''))
-            if image_record['public_url'] == '':
-              image_record['public_url'], image_record['cdn_url'] = await upload_photo_to_storage(images[image_index], listing_id=listing_id, category="home")
-              image_index += 1
-            image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
-            image_record['listing_id'] = listing_id
-            image_record['category'] = 'home'
-            image_records.append(image_record)
-          print("Final image records to insert/update:", image_records)
-          
-          
-      
-          for url in deleted_urls:
-              await _db_pool.execute("DELETE FROM images WHERE public_url = $1 AND listing_id = $2", url, listing_id)
-
-          if image_records:
-              insert_query = """
-                  INSERT INTO images (
-                      owner_firebase_uid,
-                      listing_id,
-                      category,
-                      public_url,
-                      cdn_url,
-                      tag,
-                      caption,
-                      is_hero,
-                      sort_order
-                  )
-                  VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) 
-                  ON CONFLICT (public_url, listing_id) DO UPDATE SET updated_at = NOW()
-              """
-
-              image_data = [
-                  (
-                      record['owner_firebase_uid'],
-                      record['listing_id'],
-                      record['category'],
-                      record['public_url'],
-                      record['cdn_url'],
-                      record['tag'],
-                      record['caption'],
-                      record['is_hero'],
-                      record['sort_order']
-                  )
-                  for record in image_records
-              ]
-
-              await _db_pool.executemany(insert_query, image_data)
+                      print(f"Error deleting image from storage {public_url}: {e}")
 
           return {
               "success": True,
@@ -500,6 +527,14 @@ async def update_home_listing(
           print(f"Error updating listing: {e}")
           import traceback
           traceback.print_exc()
+
+          # Clean up uploaded images on failure
+          for url in uploaded_urls:
+            try:
+              delete_image_from_storage(url)
+            except Exception as cleanup_error:
+              print(f"Failed to cleanup image {url}: {cleanup_error}")
+
           raise HTTPException(status_code=500, detail=str(e))
 
 
@@ -513,22 +548,23 @@ async def delete_user(uid: str):
             if not exist_user:
                 print("No listings found for user, skipping deletion of listings.")
                 return JSONResponse(status_code=200, content={"message": "User not in database but deleted successfully"})
-              
-            # Get all images to delete from storage (simpler query)
-            image_urls = await conn.fetch("SELECT public_url FROM images WHERE owner_firebase_uid = $1", uid)
-            
-            # Delete user (CASCADE will delete homes and images from DB)
-            result = await conn.execute("DELETE FROM users WHERE owner_firebase_uid = $1", uid)
-            if result == "DELETE 0":
-                raise HTTPException(status_code=404, detail="User not found")
 
-            # Delete images from storage
+            async with conn.transaction():
+              # Get all images to delete from storage (simpler query)
+              image_urls = await conn.fetch("SELECT public_url FROM images WHERE owner_firebase_uid = $1", uid)
+
+              # Delete user (CASCADE will delete homes and images from DB)
+              result = await conn.execute("DELETE FROM users WHERE owner_firebase_uid = $1", uid)
+              if result == "DELETE 0":
+                  raise HTTPException(status_code=404, detail="User not found")
+
+            # Delete images from storage after DB transaction
             for image in image_urls:
                 delete_image_from_storage(image['public_url'])
-                
+
             logger.info(f"Successfully deleted user and images for userID: {uid}")
             return JSONResponse(status_code=200, content={"message": "User and related data deleted successfully"})
-            
+
     except Exception as e:
           import traceback
           print("=" * 50)
@@ -579,32 +615,36 @@ async def update_user(uid: str, user: UserUpdate):
 
 
 
+# from fastapi import Response
 @app.get("/browse")
-async def browse_homes(response_model: List[full_home_listing] = []):
+async def browse_homes():
   try:
+    token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
+
     print("Inside browse homes")
     query_home = """
-      SELECT 
+      SELECT
       h.*,
       json_agg(
         json_build_object(
           'id', i.listing_id,
           'public_url', i.public_url,
-          'cdn_url', i.cdn_url,
           'tag', i.tag,
           'caption', i.caption,
           'is_hero', i.is_hero
         ) ORDER BY i.is_hero DESC  -- <-- true comes first
       ) AS images
     FROM homes h
-    LEFT JOIN images i ON i.listing_id = h.listing_id
+    INNER JOIN images i ON i.listing_id = h.listing_id
     GROUP BY h.listing_id;
 
       """
-    
+      
+      
+
     expiration = 3600  # 1 hour
     cookies_value = generate_signed_cookie(expiration=3600)
-    logging.info("Generated cookies value:", cookies_value)
+    logging.info("Generated cookies value:{cookies_value}" )
     cookies_response = {"cdn_cookies": {
               "name": "Cloud-CDN-Cookie",
               "value": cookies_value,
@@ -612,8 +652,22 @@ async def browse_homes(response_model: List[full_home_listing] = []):
               "domain": ".swapwithus.com"
           }}
 
+
+    
+    # response.set_cookie(
+    #       key="Cloud-CDN-Cookie",
+    #       value=cookies_value,
+    #       max_age=3600,
+    #       domain=".swapwithus.com",  # Works for www.swapwithus.com AND cdn.swapwithus.com
+    #       secure=True,
+    #       httponly=False,  # Must be False so images can use it
+    #       samesite="none"
+    #   )
+
+
     async with _db_pool.acquire() as conn:
       homes_list = await conn.fetch(query_home)
+      print(homes_list)
       from pprint import pprint
       import json
       # homes_list = [dict(l) for l in homes_list]
@@ -629,6 +683,11 @@ async def browse_homes(response_model: List[full_home_listing] = []):
       for home in homes_dict:
           if isinstance(home.get('images'), str):
               home['images'] = json.loads(home['images'])
+              for img in home['images']:
+                  print(img['public_url'])
+                  signed_url = append_token_to_url(img['public_url'], token_prefix)
+                  img['signed_url'] = signed_url
+                  logging.info(signed_url)
 
       return {"homes": homes_dict, **cookies_response}
       # return {"homes": homes_list, **cookies_response}
@@ -643,8 +702,6 @@ async def browse_homes(response_model: List[full_home_listing] = []):
       raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
-from fastapi import Response
-import httpx
 
 
 

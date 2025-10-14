@@ -8,9 +8,87 @@ import asyncio
 import logging
 from fastapi import UploadFile
 
+
+from PIL import Image
+import io
+
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+
+def optimize_image(image_file, max_width=1200, quality=85):
+      """
+      Smart image optimization:
+      - PNG with transparency → optimized PNG
+      - PNG without transparency → JPEG (smaller)
+      - JPEG → optimized JPEG
+      - WebP → optimized WebP
+      - Other formats → JPEG
+      """
+      img = Image.open(image_file)
+      original_format = img.format
+
+      # Resize if too large
+      if img.width > max_width:
+          ratio = max_width / img.width
+          new_height = int(img.height * ratio)
+          img = img.resize((max_width, new_height), Image.LANCZOS)
+
+      output = io.BytesIO()
+
+      # Decide output format based on image characteristics
+      if original_format == 'PNG':
+          # Check if PNG has transparency
+          has_transparency = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+
+          if has_transparency:
+              # Keep as PNG to preserve transparency
+              if img.mode == 'P':
+                  img = img.convert('RGBA')
+              img.save(output, format='PNG', optimize=True)
+              output.seek(0)
+              return output, 'image/png'
+          else:
+              # Convert to JPEG for smaller size
+              if img.mode in ('RGBA', 'LA', 'P'):
+                  img = img.convert('RGB')
+              img.save(output, format='JPEG', quality=quality, optimize=True)
+              output.seek(0)
+              return output, 'image/jpeg'
+
+      elif original_format == 'WEBP':
+          # WebP is already efficient, keep it
+          if img.mode in ('RGBA', 'LA'):
+              # WebP supports transparency, keep it
+              img.save(output, format='WEBP', quality=quality, optimize=True, lossless=False)
+          else:
+              img.save(output, format='WEBP', quality=quality, optimize=True)
+          output.seek(0)
+          return output, 'image/webp'
+
+      else:
+          # JPEG or other formats → convert to JPEG
+          # Always convert to RGB for JPEG
+          if img.mode != 'RGB':
+              if img.mode in ('RGBA', 'LA'):
+                  # Create white background for transparency
+                  background = Image.new('RGB', img.size, (255, 255, 255))
+                  background.paste(img, mask=img.split()[-1])
+                  img = background
+              elif img.mode == 'P':
+                  img = img.convert('RGBA')
+                  background = Image.new('RGB', img.size, (255, 255, 255))
+                  background.paste(img, mask=img.split()[-1])
+                  img = background
+              else:
+                  img = img.convert('RGB')
+
+          img.save(output, format='JPEG', quality=quality, optimize=True)
+          output.seek(0)
+          return output, 'image/jpeg'
+        
+        
 """ 
 Google Cloud client libraries use Application Default Credentials (ADC). The library checks in this order (common cases):
 
@@ -50,11 +128,14 @@ async def upload_photo_to_storage(photo: UploadFile, listing_id: str, category: 
 
         # Reset file pointer to beginning
         await photo.seek(0)
+        # Optimize image and get format
+        optimized_image, content_type = optimize_image(photo.file, max_width=1200, quality=85)
+
 
         # Upload file with metadata
         blob.upload_from_file(
-            photo.file,
-            content_type=photo.content_type,
+            optimized_image,
+            content_type=content_type,
             timeout=30
         )
 
@@ -68,7 +149,7 @@ async def upload_photo_to_storage(photo: UploadFile, listing_id: str, category: 
 
         logger.info(f"Successfully uploaded photo: {blob_name}")
       
-        return public_url, cdn_url
+        return public_url
 
     except GoogleCloudError as e:
         logger.error(f"Google Cloud Storage error: {e}")
