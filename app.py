@@ -160,28 +160,47 @@ async def get_home_listings(owner_firebase_uid: str):
       SELECT * FROM homes WHERE owner_firebase_uid = $1
       """
 
+      # query_images = """
+      # SELECT public_url,  tag, caption, is_hero, sort_order 
+      # FROM images 
+      # WHERE owner_firebase_uid = $1 AND category = 'home' AND listing_id = $2
+      # ORDER BY sort_order
+      # """
+      
       query_images = """
-      SELECT public_url,  tag, caption, is_hero, sort_order 
-      FROM images 
-      WHERE owner_firebase_uid = $1 AND category = 'home' AND listing_id = $2
-      ORDER BY sort_order
+      SELECT 
+          public_url,
+          'https://cdn.swapwithus.com/home/' ||
+              split_part(public_url, 'storage.googleapis.com/swapwithus-images-storage/home/', 2) ||
+              '?' || $3 AS signed_url,
+          tag,
+          caption,
+          is_hero,
+          sort_order
+      FROM images
+      WHERE 
+          owner_firebase_uid = $1 
+          AND category = 'home' 
+          AND listing_id = $2
+      ORDER BY sort_order;
       """
+
 
       async with _db_pool.acquire() as conn:
         try:
           home_rows = await conn.fetch(query_home, owner_firebase_uid)
 
           listings = []
+          token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
           for home_row in home_rows:
               # Fetch images for this specific listing
-              image_rows = await conn.fetch(query_images, owner_firebase_uid, home_row['listing_id'])
+              image_rows = await conn.fetch(query_images, owner_firebase_uid, home_row['listing_id'], token_prefix)
               image_rows = [dict(img) for img in image_rows]
-              token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
-              for i, img in enumerate(image_rows):
-                  public_url = img['public_url']
-                  signed_url = append_token_to_url(public_url, token_prefix)
-                  image_rows[i]['signed_url'] = signed_url
-                  logger.info(signed_url)
+              # for i, img in enumerate(image_rows):
+              #     public_url = img['public_url']
+              #     signed_url = append_token_to_url(public_url, token_prefix)
+              #     image_rows[i]['signed_url'] = signed_url
+              #     logger.info(signed_url)
 
               # Convert home row to dict
               listing = dict(home_row)
@@ -618,39 +637,62 @@ async def update_user(uid: str, user: UserUpdate):
 # from fastapi import Response
 @app.get("/browse")
 async def browse_homes():
+  import time
+  tick = time.time()
   try:
     token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
 
     print("Inside browse homes")
+    # query_home = """
+    #   SELECT
+    #   h.*,
+    #   json_agg(
+    #     json_build_object(
+    #       'id', i.listing_id,
+    #       'public_url', i.public_url,
+    #       'tag', i.tag,
+    #       'caption', i.caption,
+    #       'is_hero', i.is_hero
+    #     ) ORDER BY i.is_hero DESC  -- <-- true comes first
+    #   ) AS images
+    # FROM homes h
+    # INNER JOIN images i ON i.listing_id = h.listing_id
+    # GROUP BY h.listing_id;
+
+    #   """
+    
     query_home = """
-      SELECT
-      h.*,
-      json_agg(
-        json_build_object(
-          'id', i.listing_id,
-          'public_url', i.public_url,
-          'tag', i.tag,
-          'caption', i.caption,
-          'is_hero', i.is_hero
-        ) ORDER BY i.is_hero DESC  -- <-- true comes first
-      ) AS images
+    SELECT
+        h.*,
+        json_agg(
+            json_build_object(
+                'id', i.listing_id,
+                'public_url', i.public_url,
+                'signed_url', 
+                    'https://cdn.swapwithus.com/home/' ||
+                    split_part(i.public_url, 'storage.googleapis.com/swapwithus-images-storage/home/', 2) ||
+                    '?' || $1,
+                'tag', i.tag,
+                'caption', i.caption,
+                'is_hero', i.is_hero
+            ) ORDER BY i.is_hero DESC
+        ) AS images
     FROM homes h
     INNER JOIN images i ON i.listing_id = h.listing_id
     GROUP BY h.listing_id;
-
-      """
+    """
+          
       
-      
 
-    expiration = 3600  # 1 hour
-    cookies_value = generate_signed_cookie(expiration=3600)
-    logging.info("Generated cookies value:{cookies_value}" )
-    cookies_response = {"cdn_cookies": {
-              "name": "Cloud-CDN-Cookie",
-              "value": cookies_value,
-              "expires": expiration,
-              "domain": ".swapwithus.com"
-          }}
+    # expiration = 3600  # 1 hour
+    # cookies_value = generate_signed_cookie(expiration=3600)
+    # logging.info("Generated cookies value:{cookies_value}" )
+    # cookies_response = {"cdn_cookies": {
+    #           "name": "Cloud-CDN-Cookie",
+    #           "value": cookies_value,
+    #           "expires": expiration,
+    #           "domain": ".swapwithus.com"
+    #       }}
 
 
     
@@ -666,8 +708,7 @@ async def browse_homes():
 
 
     async with _db_pool.acquire() as conn:
-      homes_list = await conn.fetch(query_home)
-      print(homes_list)
+      homes_list = await conn.fetch(query_home, token_prefix)
       from pprint import pprint
       import json
       # homes_list = [dict(l) for l in homes_list]
@@ -683,13 +724,17 @@ async def browse_homes():
       for home in homes_dict:
           if isinstance(home.get('images'), str):
               home['images'] = json.loads(home['images'])
-              for img in home['images']:
-                  print(img['public_url'])
-                  signed_url = append_token_to_url(img['public_url'], token_prefix)
-                  img['signed_url'] = signed_url
-                  logging.info(signed_url)
+              # for img in home['images']:
+              #     print(img['public_url'], "\n----\n")
+              #     print(img['signed_url'])
+              #     signed_url = append_token_to_url(img['public_url'], token_prefix)
+              #     img['signed_url'] = signed_url
+              #     logging.info(signed_url)
 
-      return {"homes": homes_dict, **cookies_response}
+      tock = time.time()
+      logging.info(f"Browse homes took {tock - tick} seconds")
+      return {"homes": homes_dict}
+    
       # return {"homes": homes_list, **cookies_response}
     
   except Exception as e:
