@@ -632,10 +632,12 @@ async def update_user(uid: str, user: UserUpdate):
       logging.error("=" * 50)
 
 
+from async_lru import alru_cache
 
 
 # from fastapi import Response
 @app.get("/browse")
+@alru_cache(maxsize=2, ttl = 9*3600)
 async def browse_homes():
   import time
   tick = time.time()

@@ -105,7 +105,7 @@ def sign_cdn_url(url: str, key_name: str = KEY_NAME, key_b64: str = KEY_B64, exp
 
   
 def make_urlprefix_token(url_prefix: str, key_name: str = KEY_NAME,
-                         key_b64: str = KEY_B64, expires_in: int = 3600) -> str:
+                         key_b64: str = KEY_B64, expires_in: int = 10*3600) -> str:
     """Create a single token that authorizes all URLs starting with url_prefix."""
     key = _b64_any_to_bytes(key_b64)
     exp = int(time.time()) + int(expires_in)
