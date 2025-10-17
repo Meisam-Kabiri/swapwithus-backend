@@ -9,7 +9,7 @@ from db_ops.db_manager import DbManager
 from db_connection.connection_to_db import get_db_pool
     
 from gcp_storage_and_api.image_upload import upload_photo_to_storage, delete_image_from_storage
-from gcp_storage_and_api.singning_cookies import generate_signed_cookie, make_urlprefix_token, append_token_to_url
+from gcp_storage_and_api.cdn_auth import generate_signed_cookie, make_urlprefix_token, append_token_to_url
 from contextlib import asynccontextmanager
 
 import logging
@@ -74,6 +74,7 @@ class HomeListingCreate(BaseModel):
       postal_code: Optional[str] = None
       latitude: Optional[float] = None
       longitude: Optional[float] = None
+      privacy_radius: Optional[int] = None
       
 
       # Step 5: House Rules
@@ -153,6 +154,20 @@ class firebase_user_if_not_exists(BaseModel):
   # image_1_is_hero: "false"
   # image_1_sort_order: "1"
 
+
+@app.get("/api/users/{uid}")
+async def get_user_data(uid: str):
+    query = """
+        SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
+               linkedin_url, instagram_id, facebook_id, created_at, updated_at
+        FROM users
+        WHERE owner_firebase_uid = $1
+    """
+    async with _db_pool.acquire() as conn:
+        user_row = await conn.fetchrow(query, uid)
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+        return dict(user_row)
 @app.get("/api/homes")
 async def get_home_listings(owner_firebase_uid: str):
 
