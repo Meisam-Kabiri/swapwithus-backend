@@ -15,6 +15,9 @@ from contextlib import asynccontextmanager
 from middleware.rate_limit import limiter, custom_rate_limit_handler
 from slowapi.errors import RateLimitExceeded
 
+from middleware.auth import verify_firebase_token, verify_user_owns_resource
+
+
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -39,7 +42,15 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:8080", "https://swapwithus.com"],
+    allow_origins=[
+          "http://localhost:3000",           # Local development
+          "http://localhost:8080",           # Local development
+          "https://swapwithus.com",          # Production frontend
+          "https://www.swapwithus.com",      # Production with www
+          "https://cdn.swapwithus.com",      # CDN
+          # Add Cloud Run backend URL for health checks
+          "https://swapwithus-backend-928070808987.europe-west1.run.app"     # Replace with actual URL
+      ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -166,6 +177,10 @@ class firebase_user_if_not_exists(BaseModel):
 @app.get("/api/users/{uid}")
 @limiter.limit("100/minute")
 async def get_user_data(uid: str, request: Request):
+  
+    # Verify user can only see their own listings
+    await verify_user_owns_resource(request, uid)
+
     query = """
         SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
                linkedin_url, instagram_id, facebook_id, created_at, updated_at
@@ -177,9 +192,16 @@ async def get_user_data(uid: str, request: Request):
         if not user_row:
             raise HTTPException(status_code=404, detail="User not found")
         return dict(user_row)
+      
+      
+      
 @app.get("/api/homes")
 @limiter.limit("60/minute")
 async def get_home_listings(request: Request, owner_firebase_uid: str):
+  
+      # Verify user can only delete their own account
+      await verify_user_owns_resource(request, owner_firebase_uid)
+
 
       query_home = """
       SELECT * FROM homes WHERE owner_firebase_uid = $1
@@ -282,6 +304,25 @@ async def get_home_listings(request: Request, owner_firebase_uid: str):
 @app.delete("/api/homes/{listing_id}")
 @limiter.limit("5/hour")
 async def delete_home_listing(request: Request, listing_id: str):
+
+
+  user_uid = await verify_firebase_token(request)
+  # Check if listing belongs to this user
+  async with _db_pool.acquire() as conn:
+      listing_owner = await conn.fetchval(
+          "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1",
+          listing_id
+      )
+
+      if not listing_owner:
+          raise HTTPException(404, "Listing not found")
+
+      if listing_owner != user_uid:
+          raise HTTPException(403, "You don't own this listing")
+
+
+  
+
   query_delete_home = """
   DELETE FROM homes WHERE listing_id = $1
   """
@@ -312,6 +353,9 @@ async def delete_home_listing(request: Request, listing_id: str):
 @app.post("/api/homes")
 @limiter.limit("15/hour")
 async def create_home_listing(request: Request, listing:str =  Form(...), images: List[UploadFile] = File(...)):
+  # Verify user is authenticated and extract UID
+  user_uid = await verify_firebase_token(request)
+
   uploaded_urls = []
   try:
     # Simulate saving to database and getting an ID
@@ -320,6 +364,10 @@ async def create_home_listing(request: Request, listing:str =  Form(...), images
 
     user_data = firebase_user_if_not_exists.model_validate_json(listing)
     user_data_dict = user_data.model_dump(exclude_none=True)
+
+    # Verify the token UID matches the listing owner
+    if user_data_dict.get("owner_firebase_uid") != user_uid:
+        raise HTTPException(403, "Cannot create listing for another user")
 
     metadata_collection = ImageMetadataCollection.model_validate_json(listing)
     metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
@@ -423,6 +471,13 @@ async def create_home_listing(request: Request, listing:str =  Form(...), images
 @app.post("/api/users")
 @limiter.limit("5/hour")
 async def create_user(request: Request, user: UserCreate):
+    # Verify Firebase token
+    user_uid = await verify_firebase_token(request)
+
+    # Verify the token UID matches the user being created
+    if user.owner_firebase_uid != user_uid:
+        raise HTTPException(403, "Cannot create user account for another user")
+
     try:
         db_manager = DbManager()
         user_dict = user.model_dump()
@@ -446,6 +501,23 @@ async def update_home_listing(
       listing: str = Form(...),
       images: List[UploadFile] = File(default=[])
       ):
+
+      # Verify user is authenticated
+      user_uid = await verify_firebase_token(request)
+
+      # Check if listing belongs to this user
+      async with _db_pool.acquire() as conn:
+          listing_owner = await conn.fetchval(
+              "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1",
+              listing_id
+          )
+
+          if not listing_owner:
+              raise HTTPException(404, "Listing not found")
+
+          if listing_owner != user_uid:
+              raise HTTPException(403, "You don't own this listing")
+
       uploaded_urls = []
       try:
           # Parse form data
@@ -591,6 +663,9 @@ async def update_home_listing(
 @app.delete("/api/users/{uid}")
 @limiter.limit("3/hour")
 async def delete_user(request: Request, uid: str):
+    # Verify user can only delete their own account
+    await verify_user_owns_resource(request, uid)
+    
     try:
         async with _db_pool.acquire() as conn:
             # First delete user's listings (if any)
@@ -626,6 +701,9 @@ async def delete_user(request: Request, uid: str):
 @app.patch("/api/users/{uid}")
 @limiter.limit("10/minute")
 async def update_user(request: Request, uid: str, user: UserUpdate):
+  
+  # Verify user can only update their own account
+  await verify_user_owns_resource(request, uid)
   query = """   UPDATE users
                 SET
                 name = $1,

@@ -4,3 +4,4 @@ test*
 env.yaml
 claude*
 CLAUDE*
+*firebase*.json
