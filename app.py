@@ -12,6 +12,9 @@ from gcp_storage_and_api.image_upload import upload_photo_to_storage, delete_ima
 from gcp_storage_and_api.cdn_auth import generate_signed_cookie, make_urlprefix_token, append_token_to_url
 from contextlib import asynccontextmanager
 
+from middleware.rate_limit import limiter, custom_rate_limit_handler
+from slowapi.errors import RateLimitExceeded
+
 import logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -36,11 +39,16 @@ async def lifespan(app: FastAPI):
 app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["http://localhost:8080", "https://swapwithus.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+app.state.limiter = limiter
+# app.add_exception_handler(RateLimitExceeded, limiter._rate_limit_exceeded_handler)
+app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
 from datetime import date
 class HomeListingCreate(BaseModel):
@@ -156,7 +164,8 @@ class firebase_user_if_not_exists(BaseModel):
 
 
 @app.get("/api/users/{uid}")
-async def get_user_data(uid: str):
+@limiter.limit("100/minute")
+async def get_user_data(uid: str, request: Request):
     query = """
         SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
                linkedin_url, instagram_id, facebook_id, created_at, updated_at
@@ -169,7 +178,8 @@ async def get_user_data(uid: str):
             raise HTTPException(status_code=404, detail="User not found")
         return dict(user_row)
 @app.get("/api/homes")
-async def get_home_listings(owner_firebase_uid: str):
+@limiter.limit("60/minute")
+async def get_home_listings(request: Request, owner_firebase_uid: str):
 
       query_home = """
       SELECT * FROM homes WHERE owner_firebase_uid = $1
@@ -270,7 +280,8 @@ async def get_home_listings(owner_firebase_uid: str):
 
 
 @app.delete("/api/homes/{listing_id}")
-async def delete_home_listing(listing_id: str):
+@limiter.limit("5/hour")
+async def delete_home_listing(request: Request, listing_id: str):
   query_delete_home = """
   DELETE FROM homes WHERE listing_id = $1
   """
@@ -299,7 +310,8 @@ async def delete_home_listing(listing_id: str):
 
 
 @app.post("/api/homes")
-async def create_home_listing(listing:str =  Form(...), images: List[UploadFile] = File(...)):
+@limiter.limit("15/hour")
+async def create_home_listing(request: Request, listing:str =  Form(...), images: List[UploadFile] = File(...)):
   uploaded_urls = []
   try:
     # Simulate saving to database and getting an ID
@@ -409,7 +421,8 @@ async def create_home_listing(listing:str =  Form(...), images: List[UploadFile]
 
 # When: After Firebase signup (email/password, Google, or Facebook)
 @app.post("/api/users")
-async def create_user(user: UserCreate):
+@limiter.limit("5/hour")
+async def create_user(request: Request, user: UserCreate):
     try:
         db_manager = DbManager()
         user_dict = user.model_dump()
@@ -426,7 +439,9 @@ async def create_user(user: UserCreate):
 
 
 @app.put("/api/homes/{listing_id}")
+@limiter.limit("10/minute")
 async def update_home_listing(
+      request: Request,
       listing_id: str,
       listing: str = Form(...),
       images: List[UploadFile] = File(default=[])
@@ -574,7 +589,8 @@ async def update_home_listing(
 
 # DELETE /api/users/{uid} (Delete Account)
 @app.delete("/api/users/{uid}")
-async def delete_user(uid: str):
+@limiter.limit("3/hour")
+async def delete_user(request: Request, uid: str):
     try:
         async with _db_pool.acquire() as conn:
             # First delete user's listings (if any)
@@ -608,7 +624,8 @@ async def delete_user(uid: str):
           raise HTTPException(status_code=500, detail=str(e))
 
 @app.patch("/api/users/{uid}")
-async def update_user(uid: str, user: UserUpdate):
+@limiter.limit("10/minute")
+async def update_user(request: Request, uid: str, user: UserUpdate):
   query = """   UPDATE users
                 SET
                 name = $1,
@@ -652,8 +669,9 @@ from async_lru import alru_cache
 
 # from fastapi import Response
 @app.get("/browse")
-@alru_cache(maxsize=2, ttl = 9*3600)
-async def browse_homes():
+@limiter.limit("30/minute")
+@alru_cache(maxsize=5, ttl = 9*3600)
+async def browse_homes(request: Request):
   import time
   tick = time.time()
   try:

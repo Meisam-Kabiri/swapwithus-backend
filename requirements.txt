@@ -10,3 +10,5 @@ google-cloud-iam==2.15.2
 uvicorn==0.35.0
 pillow==11.3.0
 async-lru==2.0.5
+slowapi==0.1.9
+redis==6.4.0
