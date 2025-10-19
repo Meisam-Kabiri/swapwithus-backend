@@ -43,13 +43,9 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-          "http://localhost:3000",           # Local development
           "http://localhost:8080",           # Local development
           "https://swapwithus.com",          # Production frontend
           "https://www.swapwithus.com",      # Production with www
-          "https://cdn.swapwithus.com",      # CDN
-          # Add Cloud Run backend URL for health checks
-          "https://swapwithus-backend-928070808987.europe-west1.run.app"     # Replace with actual URL
       ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -174,12 +170,15 @@ class firebase_user_if_not_exists(BaseModel):
   # image_1_sort_order: "1"
 
 
-@app.get("/api/users/{uid}")
+@app.get("/api/users/me")
 @limiter.limit("100/minute")
-async def get_user_data(uid: str, request: Request):
-  
-    # Verify user can only see their own listings
-    await verify_user_owns_resource(request, uid)
+async def get_my_user_data(request: Request):
+    """
+    Get current user's own profile data
+    UID is extracted from Firebase token, not from URL
+    """
+    # Extract UID from token
+    uid = await verify_firebase_token(request)
 
     query = """
         SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
@@ -192,9 +191,82 @@ async def get_user_data(uid: str, request: Request):
         if not user_row:
             raise HTTPException(status_code=404, detail="User not found")
         return dict(user_row)
-      
-      
-      
+
+
+@app.get("/api/users/{uid}")
+@limiter.limit("100/minute")
+async def get_user_data(uid: str, request: Request):
+    """
+    Get another user's PUBLIC profile data (for viewing their listings)
+    Returns limited public information only - no authentication required
+    """
+    query = """
+        SELECT owner_firebase_uid, name, profile_image
+        FROM users
+        WHERE owner_firebase_uid = $1
+    """
+    async with _db_pool.acquire() as conn:
+        user_row = await conn.fetchrow(query, uid)
+        if not user_row:
+            raise HTTPException(status_code=404, detail="User not found")
+        return dict(user_row)
+
+
+@app.get("/api/homes/my-listings")
+@limiter.limit("60/minute")
+async def get_my_home_listings(request: Request):
+    """
+    Get current user's own home listings
+    UID is extracted from Firebase token, not from query params
+    """
+    # Extract UID from token
+    uid = await verify_firebase_token(request)
+
+    query_home = """
+    SELECT * FROM homes WHERE owner_firebase_uid = $1
+    """
+
+    query_images = """
+    SELECT
+        public_url,
+        'https://cdn.swapwithus.com/home/' ||
+            split_part(public_url, 'storage.googleapis.com/swapwithus-images-storage/home/', 2) ||
+            '?' || $3 AS signed_url,
+        tag,
+        caption,
+        is_hero,
+        sort_order
+    FROM images
+    WHERE
+        owner_firebase_uid = $1
+        AND category = 'home'
+        AND listing_id = $2
+    ORDER BY sort_order;
+    """
+
+    async with _db_pool.acquire() as conn:
+        try:
+            home_rows = await conn.fetch(query_home, uid)
+
+            listings = []
+            token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
+            for home_row in home_rows:
+                # Fetch images for this specific listing
+                image_rows = await conn.fetch(query_images, uid, home_row['listing_id'], token_prefix)
+                image_rows = [dict(img) for img in image_rows]
+
+                # Convert home row to dict and add images
+                home_dict = dict(home_row)
+                home_dict['images'] = image_rows
+                listings.append(home_dict)
+
+            return listings
+        except Exception as e:
+            logger.error(f"Error fetching user's home listings: {e}")
+            raise HTTPException(status_code=500, detail="Failed to fetch listings")
+
+
+
 @app.get("/api/homes")
 @limiter.limit("60/minute")
 async def get_home_listings(request: Request, owner_firebase_uid: str):

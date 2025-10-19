@@ -113,3 +113,40 @@ async def verify_user_owns_resource(request: Request, claimed_uid: str):
   # - OR use Option 2 (Secret Manager) if you need more control
 
 
+# TODO
+# 3. Why send UID in URL? Why not extract from auth header only?
+
+#   You're 100% RIGHT about this one! This is actually a security improvement you should make.
+
+#   Current (less secure):
+
+#   fetch(`/api/users/${user.uid}`, {
+#     headers: { Authorization: `Bearer ${token}` }
+#   })
+
+#   Better approach:
+
+#   // Frontend - no UID in URL
+#   fetch(`/api/users/me`, {
+#     headers: { Authorization: `Bearer ${token}` }
+#   })
+
+#   // Backend - extract UID from token
+#   @app.get("/api/users/me")
+#   async def get_my_profile(request: Request):
+#       uid = await verify_firebase_token(request)  # Extract UID from token
+#       # Fetch user data using uid from token
+
+#   Why this is better:
+#   - ✅ No way to manipulate URL to try accessing other users
+#   - ✅ Single source of truth (token)
+#   - ✅ Cleaner API design
+#   - ✅ Less chance of bugs (can't accidentally mismatch UID in URL vs token)
+
+#   For /api/homes?owner_firebase_uid={uid} - same thing, should be:
+#   @app.get("/api/homes/my-listings")
+#   async def get_my_listings(request: Request):
+#       uid = await verify_firebase_token(request)  # Get from token, not query param
+
+#   Want me to refactor this? It's a good security improvemen
+
