@@ -5,7 +5,12 @@ import os
 
 # Initialize Firebase Admin (only once)
 if not firebase_admin._apps:
-    cred = credentials.Certificate("./project-8300-firebase-adminsdk.json")
+    # Try absolute path first (Docker), then relative path (local)
+    import os
+    if os.path.exists("/app/project-8300-firebase-adminsdk.json"):
+        cred = credentials.Certificate("/app/project-8300-firebase-adminsdk.json")
+    else:
+        cred = credentials.Certificate("./project-8300-firebase-adminsdk.json")
     firebase_admin.initialize_app(cred)
 
 async def verify_firebase_token(request: Request) -> str:
