@@ -1,7 +1,17 @@
-*test
-test*
+# Environment files - NEVER commit real credentials!
+.env
+.env.*
+!.env.example
 *.json.env
 env.yaml
+
+# Test files
+*test
+test*
+
+# Claude files
 claude*
 CLAUDE*
+
+# Firebase credentials
 *firebase*.json
