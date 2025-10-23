@@ -249,7 +249,7 @@ async def add_favorite(request: Request):
             raise HTTPException(status_code=500, detail="Failed to add favorite")
 
 
-@app.get("/api/favorites/get")
+@app.get("/api/favorites")
 @limiter.limit("50/minute")
 async def get_favorites(request: Request):
     user_id = await verify_firebase_token(request)
@@ -257,14 +257,14 @@ async def get_favorites(request: Request):
         raise HTTPException(status_code=401, detail="Unauthorized")
 
     get_favorites_query = """
-  SELECT h.*,
-  f.listing_id,
-  i.public_url as hero_image_url,
-  from homes h
-  Join favorites f ON h.listing_id = f.listing_id
-  LEFT JOIN images ON h.listing_id = i.listing_id AND i.is_hero = TRUE
-  WHERE f.owner_firebase_uid = $1
-  """
+    SELECT h.*,
+    f.listing_id,
+    i.public_url as hero_image_url
+    FROM homes h
+    Join favorites f ON h.listing_id = f.listing_id
+    LEFT JOIN images i ON h.listing_id = i.listing_id AND i.is_hero = TRUE
+    WHERE f.owner_firebase_uid = $1
+    """
     async with get_pool().acquire() as conn:
         try:
             favorite_rows = await conn.fetch(get_favorites_query, user_id)
