@@ -1,0 +1,66 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "swapwithus"
+version = "0.1.0"
+description = "SwapWithUs Backend API"
+readme = "README.md"
+requires-python = ">=3.10"
+authors = [
+    {name = "Meisam Kabiri"},
+]
+
+# Dependencies are in requirements.txt (we'll keep it separate for now)
+# This allows pip install -e . to work without duplicating dependencies
+dependencies = []
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.0",
+    "black>=23.0",
+    "mypy>=1.0",
+]
+
+[tool.setuptools]
+# Tell setuptools to find all packages automatically
+# This is equivalent to find_packages() in setup.py
+package-dir = {"" = "."}
+
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["app*"]
+exclude = ["tests*", "*.egg-info"]
+
+[tool.setuptools.package-data]
+# Include non-Python files if needed
+"*" = ["*.json", "*.yaml", "*.yml"]
+
+# Optional: Configure tools you might use
+[tool.black]
+line-length = 100
+target-version = ['py310', 'py311']
+include = '\.pyi?$'
+exclude = '''
+/(
+    \.git
+  | \.venv
+  | __pycache__
+  | \.egg-info
+  | build
+  | dist
+)/
+'''
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+[tool.mypy]
+python_version = "3.10"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
