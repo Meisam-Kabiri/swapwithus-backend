@@ -33,7 +33,7 @@ class HomeListingCreate(BaseModel):
       bedrooms: Optional[Annotated[int, Field(ge=0, le=50)]] = None
 
 
-      size_input: Annotated[int, Field(ge=0)] = None
+      size_input: Optional[str] = None
       size_unit: Optional[str] = None
       size_m2: Optional[int] = None
       surroundings_type: Optional[Annotated[str, Field(max_length=30)]] = None
@@ -45,7 +45,7 @@ class HomeListingCreate(BaseModel):
       postal_code: Optional[Annotated[str, Field(max_length=20, min_length=2)]] = None
       latitude: Optional[Annotated[float, Field(ge=-90, le=90)]] = None
       longitude: Optional[Annotated[float, Field(ge=-180, le=180)]] = None
-      privacy_radius: Optional[Annotated[int, Field(ge=0)]] = None
+      privacy_radius: Optional[Annotated[int, Field(ge=0)]] = 500
 
       # Step 5: House Rules
       house_rules: Optional[List[str]] = Field(default_factory=list)

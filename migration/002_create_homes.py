@@ -43,7 +43,7 @@ def create_home_table_sql():
       postal_code VARCHAR(20) NULL,
       latitude DECIMAL(10, 8) NULL,
       longitude DECIMAL(11, 8) NULL,
-      privacyRadius INTEGER NULL,
+      privacy_radius INTEGER NULL,
 
   
 

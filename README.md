@@ -24,7 +24,7 @@ Handles authentication, home listing management, image storage, and API communic
 
 | Component | Technology |
 |------------|-------------|
-| Language | Python 3.11 |
+| Language | Python 3.12 |
 | Framework | FastAPI |
 | Database | PostgreSQL (asyncpg) |
 | Auth | Firebase |

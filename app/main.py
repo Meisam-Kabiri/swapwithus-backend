@@ -17,6 +17,8 @@ from slowapi.errors import RateLimitExceeded
 
 from middleware.auth import verify_firebase_token, verify_user_owns_resource
 
+from app.models.pydantic_models import UserCreate, UserUpdate, FirebaseUserIfNotExists, ImageMetadataCollection, FullHomeListing, HomeListingCreate
+
 
 import logging
 logging.basicConfig(level=logging.INFO)
@@ -57,117 +59,119 @@ app.state.limiter = limiter
 # app.add_exception_handler(RateLimitExceeded, limiter._rate_limit_exceeded_handler)
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
-from datetime import date
-class HomeListingCreate(BaseModel):
-      # Primary key (will be generated as UUID in backend)
-      listing_id: Optional[str] = None
 
-      # Owner (Required)
-      owner_firebase_uid: str
-      email: Optional[str] = None
-      name: Optional[str] = None
-      profile_image: Optional[str] = None
 
-      # Step 1: Property Type (Optional)
-      accommodation_type: Optional[str] = None
-      property_type: Optional[str] = None
+# from datetime import date
+# class HomeListingCreate(BaseModel):
+#       # Primary key (will be generated as UUID in backend)
+#       listing_id: Optional[str] = None
 
-      # Step 2: Capacity & Layout (Optional except max_guests)
-      max_guests: int
-      bedrooms: Optional[int] = None
-      # full_bathrooms: Optional[int] = None
-      # half_bathrooms: Optional[int] = None
-      size_input: Optional[str] = None
-      size_unit: Optional[str] = None
-      size_m2: Optional[int] = None
-      surroundings_type: Optional[str] = None
+#       # Owner (Required)
+#       owner_firebase_uid: str
+#       email: Optional[str] = None
+#       name: Optional[str] = None
+#       profile_image: Optional[str] = None
 
-      # Step 3: Location (Required: country, city; Optional: rest)
-      country: str
-      city: str
-      street_address: Optional[str] = None
-      postal_code: Optional[str] = None
-      latitude: Optional[float] = None
-      longitude: Optional[float] = None
-      privacy_radius: Optional[int] = None
+#       # Step 1: Property Type (Optional)
+#       accommodation_type: Optional[str] = None
+#       property_type: Optional[str] = None
+
+#       # Step 2: Capacity & Layout (Optional except max_guests)
+#       max_guests: int
+#       bedrooms: Optional[int] = None
+#       # full_bathrooms: Optional[int] = None
+#       # half_bathrooms: Optional[int] = None
+#       size_input: Optional[str] = None
+#       size_unit: Optional[str] = None
+#       size_m2: Optional[int] = None
+#       surroundings_type: Optional[str] = None
+
+#       # Step 3: Location (Required: country, city; Optional: rest)
+#       country: str
+#       city: str
+#       street_address: Optional[str] = None
+#       postal_code: Optional[str] = None
+#       latitude: Optional[float] = None
+#       longitude: Optional[float] = None
+#       privacy_radius: Optional[int] = None
       
 
-      # Step 5: House Rules
-      house_rules: Optional[List[str]] = Field(default_factory=list)
-      main_residence: Optional[bool] = None
+#       # Step 5: House Rules
+#       house_rules: Optional[List[str]] = Field(default_factory=list)
+#       main_residence: Optional[bool] = None
 
-      # Step 6: Transport & Car Swap
-      open_to_car_swap: bool = False
-      require_car_swap_match: bool = False
-      car_details: Optional[Dict[str, Any]] = None
+#       # Step 6: Transport & Car Swap
+#       open_to_car_swap: bool = False
+#       require_car_swap_match: bool = False
+#       car_details: Optional[Dict[str, Any]] = None
 
-      # Step 7:  Available Amenities
-      amenities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
-      accessibility_features: Optional[List[str]] = Field(default_factory=list)
-      parking_type: Optional[str] = None
+#       # Step 7:  Available Amenities
+#       amenities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
+#       accessibility_features: Optional[List[str]] = Field(default_factory=list)
+#       parking_type: Optional[str] = None
 
-      # Step 8: Availability
-      is_flexible: Optional[bool] = None
-      available_from: Optional[date] = None
-      available_until: Optional[date] = None
+#       # Step 8: Availability
+#       is_flexible: Optional[bool] = None
+#       available_from: Optional[date] = None
+#       available_until: Optional[date] = None
 
-      # Step 9: Title and Description (Required: title; Optional: description)
-      title: str
-      description: Optional[str] = None
+#       # Step 9: Title and Description (Required: title; Optional: description)
+#       title: str
+#       description: Optional[str] = None
 
-      # Status (will default in DB)
-      status: Optional[str] = "draft"
-class imageMetadataItems(BaseModel):
-  caption: Optional[str] = None
-  tag: Optional[str] = None
-  is_hero: Optional[bool] = None
-  sort_order: Optional[int] = None
+#       # Status (will default in DB)
+#       status: Optional[str] = "draft"
+# class imageMetadataItems(BaseModel):
+#   caption: Optional[str] = None
+#   tag: Optional[str] = None
+#   is_hero: Optional[bool] = None
+#   sort_order: Optional[int] = None
 
-  # Just for editing existing listing:
-  public_url: Optional[str] = None
-  cdn_url: Optional[str] = None
-  # deleted_public_urls: Optional[List[str]] = []
+#   # Just for editing existing listing:
+#   public_url: Optional[str] = None
+#   cdn_url: Optional[str] = None
+#   # deleted_public_urls: Optional[List[str]] = []
   
-class ImageMetadataCollection(BaseModel):
-      images_metadata: Optional[List[imageMetadataItems]] = []
-      deleted_public_urls: Optional[List[str]] = []
+# class ImageMetadataCollection(BaseModel):
+#       images_metadata: Optional[List[imageMetadataItems]] = []
+#       deleted_public_urls: Optional[List[str]] = []
 
-class full_home_listing(HomeListingCreate):
-  images: Optional[List[imageMetadataItems]] = []
-class UserCreate(BaseModel):
-    owner_firebase_uid: str
-    email: str
-    name: str
-    profile_image: Optional[str] = None
-    is_email_verified: bool
-class UserUpdate(BaseModel):
-    name: Optional[str] = None
-    phone_country_code: Optional[str] = None
-    phone_number: Optional[str] = None
-    linkedin_url: Optional[str] = None
-    instagram_id: Optional[str] = None
-    facebook_id: Optional[str] = None
-    profile_image: Optional[str] = None
-class firebase_user_if_not_exists(BaseModel):
-    owner_firebase_uid: str
-    email: Optional[str] = None
-    name: Optional[str] = None
-    profile_image: Optional[str] = None
+# class full_home_listing(HomeListingCreate):
+#   images: Optional[List[imageMetadataItems]] = []
+# class UserCreate(BaseModel):
+#     owner_firebase_uid: str
+#     email: str
+#     name: str
+#     profile_image: Optional[str] = None
+#     is_email_verified: bool
+# class UserUpdate(BaseModel):
+#     name: Optional[str] = None
+#     phone_country_code: Optional[str] = None
+#     phone_number: Optional[str] = None
+#     linkedin_url: Optional[str] = None
+#     instagram_id: Optional[str] = None
+#     facebook_id: Optional[str] = None
+#     profile_image: Optional[str] = None
+# class firebase_user_if_not_exists(BaseModel):
+#     owner_firebase_uid: str
+#     email: Optional[str] = None
+#     name: Optional[str] = None
+#     profile_image: Optional[str] = None
     
-  # FormData structure:
-  # listing: {title, bedrooms, city, ...} // JSON string
+#   # FormData structure:
+#   # listing: {title, bedrooms, city, ...} // JSON string
 
-  # images: [file1, file2, file3, ...]     // Actual image files
+#   # images: [file1, file2, file3, ...]     // Actual image files
 
-  # image_0_caption: "Beautiful master bedroom"
-  # image_0_room_tag: "bedroom"
-  # image_0_is_hero: "true"
-  # image_0_sort_order: "0"
+#   # image_0_caption: "Beautiful master bedroom"
+#   # image_0_room_tag: "bedroom"
+#   # image_0_is_hero: "true"
+#   # image_0_sort_order: "0"
 
-  # image_1_caption: "Modern kitchen"
-  # image_1_room_tag: "kitchen"
-  # image_1_is_hero: "false"
-  # image_1_sort_order: "1"
+#   # image_1_caption: "Modern kitchen"
+#   # image_1_room_tag: "kitchen"
+#   # image_1_is_hero: "false"
+#   # image_1_sort_order: "1"
 
 
 @app.get("/api/health")
@@ -522,7 +526,7 @@ async def create_home_listing(request: Request, listing:str =  Form(...), images
     listing_data = HomeListingCreate.model_validate_json(listing)
     listing_data_dict = listing_data.model_dump(exclude_none=True)
 
-    user_data = firebase_user_if_not_exists.model_validate_json(listing)
+    user_data = FirebaseUserIfNotExists.model_validate_json(listing)
     user_data_dict = user_data.model_dump(exclude_none=True)
 
     # Verify the token UID matches the listing owner

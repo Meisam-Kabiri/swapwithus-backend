@@ -3,7 +3,7 @@ Name: swapwithus
 Version: 0.1.0
 Summary: SwapWithUs Backend API
 Author: Meisam Kabiri
-Requires-Python: >=3.10
+Requires-Python: >=3.12
 Description-Content-Type: text/markdown
 Provides-Extra: dev
 Requires-Dist: pytest>=7.0; extra == "dev"
@@ -36,7 +36,7 @@ Handles authentication, home listing management, image storage, and API communic
 
 | Component | Technology |
 |------------|-------------|
-| Language | Python 3.11 |
+| Language | Python 3.12 |
 | Framework | FastAPI |
 | Database | PostgreSQL (asyncpg) |
 | Auth | Firebase |
