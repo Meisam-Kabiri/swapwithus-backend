@@ -1,4 +1,4 @@
-import firebase_admin
+import firebase_admin  # type: ignore
 from firebase_admin import credentials, auth as firebase_auth
 from fastapi import Request, HTTPException
 import os
@@ -7,115 +7,118 @@ import os
 if not firebase_admin._apps:
     # Try absolute path first (Docker), then relative path (local)
     import os
+
     if os.path.exists("/app/project-8300-firebase-adminsdk.json"):
         cred = credentials.Certificate("/app/project-8300-firebase-adminsdk.json")
     else:
         cred = credentials.Certificate("./project-8300-firebase-adminsdk.json")
     firebase_admin.initialize_app(cred)
 
+
 async def verify_firebase_token(request: Request) -> str:
-      """
-      Verify Firebase token and return the user UID
-      Raises HTTPException if token is invalid or missing
-      """
-      auth_header = request.headers.get("Authorization")
+    """
+    Verify Firebase token and return the user UID
+    Raises HTTPException if token is invalid or missing
+    """
+    auth_header = request.headers.get("Authorization")
 
-      if not auth_header or not auth_header.startswith("Bearer "):
-          raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
+    if not auth_header or not auth_header.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Missing or invalid authorization header")
 
-      token = auth_header.split("Bearer ")[1]
+    token = auth_header.split("Bearer ")[1]
 
-      try:
-          decoded_token = firebase_auth.verify_id_token(token)
-          return decoded_token['uid']
-      except Exception as e:
-          raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    try:
+        decoded_token = firebase_auth.verify_id_token(token)
+        return decoded_token["uid"]
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
 
 async def verify_user_owns_resource(request: Request, claimed_uid: str):
-      """
-      Verify that the authenticated user matches the claimed UID
-      """
-      actual_uid = await verify_firebase_token(request)
+    """
+    Verify that the authenticated user matches the claimed UID
+    """
+    actual_uid = await verify_firebase_token(request)
 
-      if actual_uid != claimed_uid:
-          raise HTTPException(status_code=403, detail="You don't have permission to access this resource")
+    if actual_uid != claimed_uid:
+        raise HTTPException(
+            status_code=403, detail="You don't have permission to access this resource"
+        )
 
-      return actual_uid
+    return actual_uid
 
-  
-  
-  # TODO:
-  # Problems with this approach:
-  # - ⚠️ If you share the Docker image, the secret is inside
-  # - ⚠️ Hard to rotate the key without rebuilding the image
-  # - ⚠️ Not following security best practices
 
-  # ---
-  # ✅ Option 2: Use Google Cloud Secret Manager (BETTER - Recommended)
+# TODO:
+# Problems with this approach:
+# - ⚠️ If you share the Docker image, the secret is inside
+# - ⚠️ Hard to rotate the key without rebuilding the image
+# - ⚠️ Not following security best practices
 
-  # Store the JSON content as a secret in Google Cloud:
+# ---
+# ✅ Option 2: Use Google Cloud Secret Manager (BETTER - Recommended)
 
-  # Step 1: Upload JSON to Secret Manager
+# Store the JSON content as a secret in Google Cloud:
 
-  # # From your local machine
-  # gcloud secrets create firebase-service-account \
-  #     --data-file=firebase-service-account.json \
-  #     --project=project-8300
+# Step 1: Upload JSON to Secret Manager
 
-  # Step 2: Grant Cloud Run access to the secret
+# # From your local machine
+# gcloud secrets create firebase-service-account \
+#     --data-file=firebase-service-account.json \
+#     --project=project-8300
 
-  # gcloud secrets add-iam-policy-binding firebase-service-account \
-  #     --member=serviceAccount:YOUR-PROJECT-NUMBER-compute@developer.gserviceaccount.com \
-  #     --role=roles/secretmanager.secretAccessor
+# Step 2: Grant Cloud Run access to the secret
 
-  # Step 3: Mount secret in Cloud Run
+# gcloud secrets add-iam-policy-binding firebase-service-account \
+#     --member=serviceAccount:YOUR-PROJECT-NUMBER-compute@developer.gserviceaccount.com \
+#     --role=roles/secretmanager.secretAccessor
 
-  # When deploying:
-  # gcloud run deploy your-service \
-  #     --image=gcr.io/project-8300/your-image \
-  #     --set-secrets=FIREBASE_CREDS=firebase-service-account:latest
+# Step 3: Mount secret in Cloud Run
 
-  # Step 4: Use it in your code
+# When deploying:
+# gcloud run deploy your-service \
+#     --image=gcr.io/project-8300/your-image \
+#     --set-secrets=FIREBASE_CREDS=firebase-service-account:latest
 
-  # import json
-  # import os
-  # from firebase_admin import credentials
+# Step 4: Use it in your code
 
-  # # Read from environment variable (Cloud Run injects it)
-  # firebase_creds = json.loads(os.getenv("FIREBASE_CREDS"))
-  # cred = credentials.Certificate(firebase_creds)
-  # firebase_admin.initialize_app(cred)
+# import json
+# import os
+# from firebase_admin import credentials
 
-  # ---
-  # ✅✅ Option 3: Use Workload Identity (BEST - No JSON needed!)
+# # Read from environment variable (Cloud Run injects it)
+# firebase_creds = json.loads(os.getenv("FIREBASE_CREDS"))
+# cred = credentials.Certificate(firebase_creds)
+# firebase_admin.initialize_app(cred)
 
-  # Since you're on Google Cloud Run, you can avoid the JSON file entirely:
+# ---
+# ✅✅ Option 3: Use Workload Identity (BEST - No JSON needed!)
 
-  # Step 1: Enable Workload Identity on your Cloud Run service
+# Since you're on Google Cloud Run, you can avoid the JSON file entirely:
 
-  # Step 2: Use Application Default Credentials
+# Step 1: Enable Workload Identity on your Cloud Run service
 
-  # from firebase_admin import credentials
+# Step 2: Use Application Default Credentials
 
-  # # No JSON file needed! Uses Cloud Run's service account
-  # cred = credentials.ApplicationDefault()
-  # firebase_admin.initialize_app(cred)
+# from firebase_admin import credentials
 
-  # Step 3: Grant permissions
+# # No JSON file needed! Uses Cloud Run's service account
+# cred = credentials.ApplicationDefault()
+# firebase_admin.initialize_app(cred)
 
-  # Make sure your Cloud Run service account has the Firebase Admin role.
+# Step 3: Grant permissions
 
-  # ---
-  # My Recommendation:
+# Make sure your Cloud Run service account has the Firebase Admin role.
 
-  # For now (quick fix):
-  # - ✅ Use Option 1 (include in Docker) - gets you working fast
-  # - ✅ Make sure it's in .gitignore
+# ---
+# My Recommendation:
 
-  # Later (proper security):
-  # - ✅ Migrate to Option 3 (Workload Identity) - cleanest approach
-  # - OR use Option 2 (Secret Manager) if you need more control
+# For now (quick fix):
+# - ✅ Use Option 1 (include in Docker) - gets you working fast
+# - ✅ Make sure it's in .gitignore
+
+# Later (proper security):
+# - ✅ Migrate to Option 3 (Workload Identity) - cleanest approach
+# - OR use Option 2 (Secret Manager) if you need more control
 
 
 # TODO
@@ -154,4 +157,3 @@ async def verify_user_owns_resource(request: Request, claimed_uid: str):
 #       uid = await verify_firebase_token(request)  # Get from token, not query param
 
 #   Want me to refactor this? It's a good security improvemen
-

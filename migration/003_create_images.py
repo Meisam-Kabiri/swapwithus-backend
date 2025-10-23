@@ -3,11 +3,10 @@
 # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from database.connection import get_db_connection
-import asyncpg
 import asyncio
 
 
-# for image we are using a separate table 
+# for image we are using a separate table
 def create_images_table_sql():
     """Return SQL statement to create the 'images' table."""
 
@@ -39,10 +38,11 @@ def create_images_table_sql():
     CREATE INDEX IF NOT EXISTS idx_images_sort_order ON images(listing_id, sort_order);
 
     """
-      
-    
+
+
 def main():
     """Main function to create the 'images' table."""
+
     async def run():
         conn = await get_db_connection()
         try:
@@ -53,10 +53,9 @@ def main():
             print(f"❌ Failed to create 'images' table: {e}")
         finally:
             await conn.close()
-    
+
     asyncio.run(run())
-    
-    
+
+
 if __name__ == "__main__":
     main()
-    

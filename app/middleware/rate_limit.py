@@ -2,8 +2,7 @@ import os
 from slowapi import Limiter
 from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
-from redis.asyncio import Redis
-from firebase_admin import auth as firebase_auth
+from firebase_admin import auth as firebase_auth  # type: ignore
 
 from fastapi.responses import JSONResponse
 from fastapi import Request, Response
@@ -24,11 +23,11 @@ def get_user_or_ip(request: Request) -> str:
         try:
             # Verify and decode the Firebase token to get real UID
             decoded_token = firebase_auth.verify_id_token(token)
-            uid = decoded_token['uid']
+            uid = decoded_token["uid"]
             return f"user:{uid}"
-        except:
+        except Exception:
             # Invalid token, fallback to IP
-            pass
+            pass  # Fall through to IP-based limiting
 
     # Fallback to IP for unauthenticated users or invalid tokens
     return f"ip:{get_remote_address(request)}"
@@ -40,9 +39,6 @@ limiter = Limiter(
     default_limits=["200 per day", "50 per hour"],
     storage_uri=redis_url,
 )
-
-
-
 
 
 # Custom rate limit exceeded handler
@@ -69,4 +65,3 @@ def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Respo
         },
         headers={"Retry-After": str(retry_seconds)},
     )
-    

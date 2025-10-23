@@ -3,7 +3,7 @@ requires = ["setuptools>=65.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "swapwithus"
+name = "swapwithus_backend"
 version = "0.1.0"
 description = "SwapWithUs Backend API"
 readme = "README.md"
@@ -61,6 +61,11 @@ python_functions = "test_*"
 
 [tool.mypy]
 python_version = "3.12"
-warn_return_any = true
-warn_unused_configs = true
-disallow_untyped_defs = false
+follow_imports = "silent"
+ignore_missing_imports = true
+exclude = [
+    "swapwithus_backend.egg-info",
+    "swapwithus.egg-info",
+    "build",
+    "dist",
+]

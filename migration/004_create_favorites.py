@@ -1,10 +1,10 @@
 from database.connection import get_db_connection
-import asyncpg
 import asyncio
+
 
 def create_favorite_table_sql():
     """Return SQL statement to create the 'favorites' table."""
-    
+
     return """
   CREATE TABLE favorites (
   owner_firebase_uid  VARCHAR(100) NOT NULL REFERENCES users(owner_firebase_uid)  ON DELETE CASCADE,
@@ -18,9 +18,11 @@ CREATE INDEX idx_favorites_listing ON favorites(listing_id);
 
 
     """
-    
+
+
 def main():
     """Main function to create the 'favorite' table."""
+
     async def run():
         conn = await get_db_connection()
         try:
@@ -31,14 +33,9 @@ def main():
             print(f"❌ Failed to create 'favorite' table: {e}")
         finally:
             await conn.close()
-    
+
     asyncio.run(run())
-    
-    
+
+
 if __name__ == "__main__":
     main()
-    
-    
-    
-      
-

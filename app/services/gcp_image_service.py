@@ -1,12 +1,10 @@
 import os
 import uuid
-from typing import Tuple, Optional
-from google.cloud import storage
+from google.cloud import storage  # type: ignore
 from google.cloud.exceptions import GoogleCloudError
-import aiohttp
-import asyncio
 import logging
 from fastapi import UploadFile
+from datetime import timedelta
 
 
 from PIL import Image
@@ -18,77 +16,79 @@ logger = logging.getLogger(__name__)
 
 
 def optimize_image(image_file, max_width=1200, quality=85):
-      """
-      Smart image optimization:
-      - PNG with transparency → optimized PNG
-      - PNG without transparency → JPEG (smaller)
-      - JPEG → optimized JPEG
-      - WebP → optimized WebP
-      - Other formats → JPEG
-      """
-      img = Image.open(image_file)
-      original_format = img.format
+    """
+    Smart image optimization:
+    - PNG with transparency → optimized PNG
+    - PNG without transparency → JPEG (smaller)
+    - JPEG → optimized JPEG
+    - WebP → optimized WebP
+    - Other formats → JPEG
+    """
+    img = Image.open(image_file)
+    original_format = img.format
 
-      # Resize if too large
-      if img.width > max_width:
-          ratio = max_width / img.width
-          new_height = int(img.height * ratio)
-          img = img.resize((max_width, new_height), Image.LANCZOS)
+    # Resize if too large
+    if img.width > max_width:
+        ratio = max_width / img.width
+        new_height = int(img.height * ratio)
+        img = img.resize((max_width, new_height), Image.LANCZOS)
 
-      output = io.BytesIO()
+    output = io.BytesIO()
 
-      # Decide output format based on image characteristics
-      if original_format == 'PNG':
-          # Check if PNG has transparency
-          has_transparency = img.mode in ('RGBA', 'LA') or (img.mode == 'P' and 'transparency' in img.info)
+    # Decide output format based on image characteristics
+    if original_format == "PNG":
+        # Check if PNG has transparency
+        has_transparency = img.mode in ("RGBA", "LA") or (
+            img.mode == "P" and "transparency" in img.info
+        )
 
-          if has_transparency:
-              # Keep as PNG to preserve transparency
-              if img.mode == 'P':
-                  img = img.convert('RGBA')
-              img.save(output, format='PNG', optimize=True)
-              output.seek(0)
-              return output, 'image/png'
-          else:
-              # Convert to JPEG for smaller size
-              if img.mode in ('RGBA', 'LA', 'P'):
-                  img = img.convert('RGB')
-              img.save(output, format='JPEG', quality=quality, optimize=True)
-              output.seek(0)
-              return output, 'image/jpeg'
+        if has_transparency:
+            # Keep as PNG to preserve transparency
+            if img.mode == "P":
+                img = img.convert("RGBA")
+            img.save(output, format="PNG", optimize=True)
+            output.seek(0)
+            return output, "image/png"
+        else:
+            # Convert to JPEG for smaller size
+            if img.mode in ("RGBA", "LA", "P"):
+                img = img.convert("RGB")
+            img.save(output, format="JPEG", quality=quality, optimize=True)
+            output.seek(0)
+            return output, "image/jpeg"
 
-      elif original_format == 'WEBP':
-          # WebP is already efficient, keep it
-          if img.mode in ('RGBA', 'LA'):
-              # WebP supports transparency, keep it
-              img.save(output, format='WEBP', quality=quality, optimize=True, lossless=False)
-          else:
-              img.save(output, format='WEBP', quality=quality, optimize=True)
-          output.seek(0)
-          return output, 'image/webp'
+    elif original_format == "WEBP":
+        # WebP is already efficient, keep it
+        if img.mode in ("RGBA", "LA"):
+            # WebP supports transparency, keep it
+            img.save(output, format="WEBP", quality=quality, optimize=True, lossless=False)
+        else:
+            img.save(output, format="WEBP", quality=quality, optimize=True)
+        output.seek(0)
+        return output, "image/webp"
 
-      else:
-          # JPEG or other formats → convert to JPEG
-          # Always convert to RGB for JPEG
-          if img.mode != 'RGB':
-              if img.mode in ('RGBA', 'LA'):
-                  # Create white background for transparency
-                  background = Image.new('RGB', img.size, (255, 255, 255))
-                  background.paste(img, mask=img.split()[-1])
-                  img = background
-              elif img.mode == 'P':
-                  img = img.convert('RGBA')
-                  background = Image.new('RGB', img.size, (255, 255, 255))
-                  background.paste(img, mask=img.split()[-1])
-                  img = background
-              else:
-                  img = img.convert('RGB')
+    else:
+        # JPEG or other formats → convert to JPEG
+        # Always convert to RGB for JPEG
+        if img.mode != "RGB":
+            if img.mode in ("RGBA", "LA"):
+                # Create white background for transparency
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[-1])
+                img = background
+            elif img.mode == "P":
+                img = img.convert("RGBA")
+                background = Image.new("RGB", img.size, (255, 255, 255))
+                background.paste(img, mask=img.split()[-1])
+                img = background
+            else:
+                img = img.convert("RGB")
 
-          img.save(output, format='JPEG', quality=quality, optimize=True)
-          output.seek(0)
-          return output, 'image/jpeg'
-        
-        
+        img.save(output, format="JPEG", quality=quality, optimize=True)
+        output.seek(0)
+        return output, "image/jpeg"
+
+
 """ 
 Google Cloud client libraries use Application Default Credentials (ADC). The library checks in this order (common cases):
 
@@ -97,28 +97,33 @@ Example
 
 export GOOGLE_APPLICATION_CREDENTIALS="/home/me/service-account.json"
 """
-async def upload_photo_to_storage(photo: UploadFile, listing_id: str, category: str = "general") -> str:
+
+
+async def upload_photo_to_storage(
+    photo: UploadFile, listing_id: str, category: str = "general"
+) -> str:
     """Upload photo to Google Cloud Storage and return public URL"""
     try:
         # Validate file
-        if not photo.content_type.startswith('image/'):
+        if not photo.content_type or not photo.content_type.startswith("image/"):
             raise ValueError("Only image files are allowed")
 
-        if photo.size > 5_000_000:  # 5MB limit
+        if photo.size and photo.size > 5_000_000:  # 5MB limit
             raise ValueError("File size too large (max 5MB)")
 
         # Initialize Google Cloud Storage client
         client = storage.Client()
-        bucket_name = os.getenv('GOOGLE_CLOUD_STORAGE_BUCKET', 'swapwithus-images-storage')
+        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
         bucket = client.bucket(bucket_name)
 
         # Generate secure filename
-        file_extension = photo.filename.split('.')[-1].lower() if photo.filename else 'jpg'
-        if file_extension not in ['jpg', 'jpeg', 'png', 'webp']:
-            file_extension = 'jpg'
+        file_extension = photo.filename.split(".")[-1].lower() if photo.filename else "jpg"
+        if file_extension not in ["jpg", "jpeg", "png", "webp"]:
+            file_extension = "jpg"
 
         # Generate filename: category/YYYYMMDD_uuid.extension
         from datetime import datetime
+
         timestamp = datetime.now().strftime("%Y%m%d")
         unique_id = str(uuid.uuid4())[:12]  # Shorter UUID (12 chars)
         blob_name = f"{category.lower()}/{listing_id}_{timestamp}_{unique_id}.{file_extension}"
@@ -131,96 +136,86 @@ async def upload_photo_to_storage(photo: UploadFile, listing_id: str, category: 
         # Optimize image and get format
         optimized_image, content_type = optimize_image(photo.file, max_width=1200, quality=85)
 
-
         # Upload file with metadata
-        blob.upload_from_file(
-            optimized_image,
-            content_type=content_type,
-            timeout=30
-        )
+        blob.upload_from_file(optimized_image, content_type=content_type, timeout=30)
 
         # Note: Uniform bucket-level access is enabled, so no need for make_public()
         # The bucket should be configured for public read access at bucket level
 
         # Return public URL
-        cdn = "cdn.swapwithus.com"
-        cdn_url = f"https://{cdn}/{blob_name}"
+        # cdn = "cdn.swapwithus.com"
+        # cdn_url = f"https://{cdn}/{blob_name}"
         public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
 
         logger.info(f"Successfully uploaded photo: {blob_name}")
-      
+
         return public_url
 
     except GoogleCloudError as e:
         logger.error(f"Google Cloud Storage error: {e}")
-        raise Exception(f"Failed to upload photo: Storage service error")
+        raise Exception("Failed to upload photo: Storage service error")
 
     except Exception as e:
         logger.error(f"Photo upload error: {e}")
         raise Exception(f"Failed to upload photo: {str(e)}")
-      
 
-from google.cloud import storage
-from datetime import timedelta, datetime
-from google.auth.transport import requests as google_requests
-from google.auth import compute_engine, default
-import google.auth
 
 def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
-      """Convert public URL to signed URL using IAM-based signing (works on Cloud Run)"""
-      try:
-          bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
+    """Convert public URL to signed URL using IAM-based signing (works on Cloud Run)"""
+    try:
+        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
 
-          # Extract blob_name from public URL
-          blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
+        # Extract blob_name from public URL
+        blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
 
-          # Check if running on Cloud Run (no private key available)
-          if os.getenv('K_SERVICE'):
-              # Use IAM signBlob API - keyless signing on Cloud Run
-              from google.auth.transport import requests as google_requests
-              from google.auth import compute_engine
+        # Check if running on Cloud Run (no private key available)
+        if os.getenv("K_SERVICE"):
+            # Use IAM signBlob API - keyless signing on Cloud Run
+            from google.auth.transport import requests as google_requests
+            from google.auth import compute_engine
 
-              service_account_email = 'swapwithus-storage-service@project-8300.iam.gserviceaccount.com'
+            service_account_email = (
+                "swapwithus-storage-service@project-8300.iam.gserviceaccount.com"
+            )
 
-              # Get access token from metadata server
-              credentials = compute_engine.Credentials()
-              auth_request = google_requests.Request()
-              credentials.refresh(auth_request)
-              access_token = credentials.token
+            # Get access token from metadata server
+            credentials = compute_engine.Credentials()
+            auth_request = google_requests.Request()
+            credentials.refresh(auth_request)
+            access_token = credentials.token
 
-              # Create client and blob
-              client = storage.Client()
-              bucket = client.bucket(bucket_name)
-              blob = bucket.blob(blob_name)
+            # Create client and blob
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
 
-              # Generate signed URL using IAM signBlob (no private key needed!)
-              signed_url = blob.generate_signed_url(
-                  expiration=timedelta(seconds=expires_seconds),
-                  version="v4",
-                  service_account_email=service_account_email,
-                  access_token=access_token
-              )
+            # Generate signed URL using IAM signBlob (no private key needed!)
+            signed_url = blob.generate_signed_url(
+                expiration=timedelta(seconds=expires_seconds),
+                version="v4",
+                service_account_email=service_account_email,
+                access_token=access_token,
+            )
 
-              return signed_url
-          else:
-              # Local development - use standard signing
-              client = storage.Client()
-              bucket = client.bucket(bucket_name)
-              blob = bucket.blob(blob_name)
+            return signed_url
+        else:
+            # Local development - use standard signing
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
 
-              signed_url = blob.generate_signed_url(
-                  expiration=timedelta(seconds=expires_seconds),
-                  version="v4"
-              )
-              return signed_url
+            signed_url = blob.generate_signed_url(
+                expiration=timedelta(seconds=expires_seconds), version="v4"
+            )
+            return signed_url
 
-      except Exception as e:
-          logger.error(f"CRITICAL: Failed to generate signed URL: {e}")
-          # NEVER return public URLs - all images must remain private
-          raise Exception(f"Cannot generate signed URL for private image: {str(e)}")
+    except Exception as e:
+        logger.error(f"CRITICAL: Failed to generate signed URL: {e}")
+        # NEVER return public URLs - all images must remain private
+        raise Exception(f"Cannot generate signed URL for private image: {str(e)}")
 
 
-def delete_image_from_storage(public_url: str) -> bool:
+async def delete_image_from_storage(public_url: str) -> bool:
     """Delete image from Google Cloud Storage using public URL"""
     try:
         bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
@@ -244,9 +239,8 @@ def delete_image_from_storage(public_url: str) -> bool:
         logger.error(f"Failed to delete image from storage: {e}")
         # Don't raise - deletion failure shouldn't block listing deletion
         return False
-      
-      
-      
+
+
 # Solution 1: Use Cloud CDN Signed Cookies (Highly Recommended)
 # Of course. This is an excellent and very common performance problem. You've correctly identified that making a backend call to generate a signed URL for every single image is a major bottleneck. The user's browser has to wait for your server's response before it can even start fetching the image.
 

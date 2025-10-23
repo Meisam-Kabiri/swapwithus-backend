@@ -1,15 +1,16 @@
-from fastapi import FastAPI, HTTPException, Depends, Request, UploadFile, File, Form
+from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
 from fastapi.responses import JSONResponse
-from pydantic import BaseModel, Field
-from typing import List, Optional, Dict, Any, Literal, Annotated
-import asyncio
+from typing import List, Optional
 import uuid
+import asyncpg
+
+
 from fastapi.middleware.cors import CORSMiddleware
 from database.operation import DbManager
 from database.connection import get_db_pool
-    
+
 from app.services.gcp_image_service import upload_photo_to_storage, delete_image_from_storage
-from utils.cdn_auth import generate_signed_cookie, make_urlprefix_token, append_token_to_url
+from utils.cdn_auth import make_urlprefix_token, append_token_to_url
 from contextlib import asynccontextmanager
 
 from middleware.rate_limit import limiter, custom_rate_limit_handler
@@ -17,14 +18,30 @@ from slowapi.errors import RateLimitExceeded
 
 from middleware.auth import verify_firebase_token, verify_user_owns_resource
 
-from app.models.pydantic_models import UserCreate, UserUpdate, FirebaseUserIfNotExists, ImageMetadataCollection, FullHomeListing, HomeListingCreate
+from async_lru import alru_cache
+
+from app.models.pydantic_models import (
+    UserCreate,
+    UserUpdate,
+    FirebaseUserIfNotExists,
+    ImageMetadataCollection,
+    HomeListingCreate,
+)
 
 
 import logging
+
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-_db_pool = None
+_db_pool: Optional[asyncpg.Pool] = None
+
+
+def get_pool() -> asyncpg.Pool:
+    """Get database pool with type assertion"""
+    assert _db_pool is not None, "Database pool not initialized"
+    return _db_pool
+
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -45,10 +62,10 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-          "http://localhost:8080",           # Local development
-          "https://swapwithus.com",          # Production frontend
-          "https://www.swapwithus.com",      # Production with www
-      ],
+        "http://localhost:8080",  # Local development
+        "https://swapwithus.com",  # Production frontend
+        "https://www.swapwithus.com",  # Production with www
+    ],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -58,7 +75,6 @@ app.add_middleware(
 app.state.limiter = limiter
 # app.add_exception_handler(RateLimitExceeded, limiter._rate_limit_exceeded_handler)
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
-
 
 
 # from datetime import date
@@ -94,7 +110,7 @@ app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 #       latitude: Optional[float] = None
 #       longitude: Optional[float] = None
 #       privacy_radius: Optional[int] = None
-      
+
 
 #       # Step 5: House Rules
 #       house_rules: Optional[List[str]] = Field(default_factory=list)
@@ -131,7 +147,7 @@ app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 #   public_url: Optional[str] = None
 #   cdn_url: Optional[str] = None
 #   # deleted_public_urls: Optional[List[str]] = []
-  
+
 # class ImageMetadataCollection(BaseModel):
 #       images_metadata: Optional[List[imageMetadataItems]] = []
 #       deleted_public_urls: Optional[List[str]] = []
@@ -157,7 +173,7 @@ app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 #     email: Optional[str] = None
 #     name: Optional[str] = None
 #     profile_image: Optional[str] = None
-    
+
 #   # FormData structure:
 #   # listing: {title, bedrooms, city, ...} // JSON string
 
@@ -179,69 +195,71 @@ app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 async def visit_home(request: Request):
     print("Home endpoint visited")
     return {"message": "Welcome to SwapWithUs API!"}
-  
+
+
 @app.delete("/api/favorites/remove")
 @limiter.limit("50/minute")
-async def remove_favorite(request:Request):
-  print("Removing favorite for listing ID:")
-  user_id = await verify_firebase_token(request)
-  print("User ID from token:", user_id)
-  if not user_id:
-      raise HTTPException(status_code=401, detail="Unauthorized")
-  body = await request.json()
-  listing_id = body.get("listing_id")
-  print("Listing ID from query params:", listing_id)
-  if not listing_id:
-      raise HTTPException(status_code=400, detail="listing_id is required")
-  remove_favorite_query = """
+async def remove_favorite(request: Request):
+    print("Removing favorite for listing ID:")
+    user_id = await verify_firebase_token(request)
+    print("User ID from token:", user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    body = await request.json()
+    listing_id = body.get("listing_id")
+    print("Listing ID from query params:", listing_id)
+    if not listing_id:
+        raise HTTPException(status_code=400, detail="listing_id is required")
+
+    remove_favorite_query = """
   DELETE FROM favorites
   WHERE owner_firebase_uid = $1 AND listing_id = $2
   """
-  async with _db_pool.acquire() as conn:
-    try:
-      await conn.execute(remove_favorite_query, user_id, listing_id)
-      return {"message": "Listing removed from favorites"}
-    except Exception as e:
-      logger.error(f"Error removing favorite: {e}")
-      raise HTTPException(status_code=500, detail="Failed to remove favorite")
-
+    async with get_pool().acquire() as conn:
+        try:
+            await conn.execute(remove_favorite_query, user_id, listing_id)
+            return {"message": "Listing removed from favorites"}
+        except Exception as e:
+            logger.error(f"Error removing favorite: {e}")
+            raise HTTPException(status_code=500, detail="Failed to remove favorite")
 
 
 @app.post("/api/favorites/add")
 @limiter.limit("50/minute")
-async def add_favorite(request:Request):
-  print("Adding favorite for listing ID:")
-  user_id = await verify_firebase_token(request)
-  print("User ID from token:", user_id)
-  if not user_id:
-      raise HTTPException(status_code=401, detail="Unauthorized")
-  body = await request.json()
-  listing_id = body.get("listing_id")
-  print("Listing ID from query params:", listing_id)
-  if not listing_id:
-      raise HTTPException(status_code=400, detail="listing_id is required")
+async def add_favorite(request: Request):
+    print("Adding favorite for listing ID:")
+    user_id = await verify_firebase_token(request)
+    print("User ID from token:", user_id)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+    body = await request.json()
+    listing_id = body.get("listing_id")
+    print("Listing ID from query params:", listing_id)
+    if not listing_id:
+        raise HTTPException(status_code=400, detail="listing_id is required")
 
-  add_favorite_query = """
+    add_favorite_query = """
   INSERT INTO favorites (owner_firebase_uid, listing_id, created_at) 
   Values ($1, $2, NOW())
   ON CONFLICT (owner_firebase_uid, listing_id) DO NOTHING
   """
-  async with _db_pool.acquire() as conn:
-    try:
-      await conn.execute(add_favorite_query, user_id, listing_id)
-      return {"message": "Listing added to favorites"}
-    except Exception as e:
-      logger.error(f"Error adding favorite: {e}")
-      raise HTTPException(status_code=500, detail="Failed to add favorite")
- 
+    async with get_pool().acquire() as conn:
+        try:
+            await conn.execute(add_favorite_query, user_id, listing_id)
+            return {"message": "Listing added to favorites"}
+        except Exception as e:
+            logger.error(f"Error adding favorite: {e}")
+            raise HTTPException(status_code=500, detail="Failed to add favorite")
+
+
 @app.get("/api/favorites/get")
 @limiter.limit("50/minute")
-async def get_favorites(request:Request):
-  user_id = await verify_firebase_token(request)
-  if not user_id:
-      raise HTTPException(status_code=401, detail="Unauthorized")
-    
-  get_favorites_query = """
+async def get_favorites(request: Request):
+    user_id = await verify_firebase_token(request)
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Unauthorized")
+
+    get_favorites_query = """
   SELECT h.*,
   f.listing_id,
   i.public_url as hero_image_url,
@@ -250,18 +268,22 @@ async def get_favorites(request:Request):
   LEFT JOIN images ON h.listing_id = i.listing_id AND i.is_hero = TRUE
   WHERE f.owner_firebase_uid = $1
   """
-  async with _db_pool.acquire() as conn:
-    try:
-      favorite_rows = await conn.fetch(get_favorites_query, user_id)
-      favorites = [dict(row) for row in favorite_rows]
-      favorites["signed_url"] = append_token_to_url(favorites["hero_image_url"], make_urlprefix_token("https://cdn.swapwithus.com/home/"))
-      return favorites
-    except Exception as e:
-      logger.error(f"Error fetching favorites: {e}")
-      raise HTTPException(status_code=500, detail="Failed to fetch favorites")
-    
-    
-    
+    async with get_pool().acquire() as conn:
+        try:
+            favorite_rows = await conn.fetch(get_favorites_query, user_id)
+            favorites = [dict(row) for row in favorite_rows]
+            for favorite in favorites:
+                if favorite.get("hero_image_url"):
+                    favorite["signed_url"] = append_token_to_url(
+                        favorite["hero_image_url"],
+                        make_urlprefix_token("https://cdn.swapwithus.com/home/"),
+                    )
+            return favorites
+        except Exception as e:
+            logger.error(f"Error fetching favorites: {e}")
+            raise HTTPException(status_code=500, detail="Failed to fetch favorites")
+
+
 @app.get("/api/users/me")
 @limiter.limit("100/minute")
 async def get_my_user_data(request: Request):
@@ -278,7 +300,7 @@ async def get_my_user_data(request: Request):
         FROM users
         WHERE owner_firebase_uid = $1
     """
-    async with _db_pool.acquire() as conn:
+    async with get_pool().acquire() as conn:
         user_row = await conn.fetchrow(query, uid)
         if not user_row:
             raise HTTPException(status_code=404, detail="User not found")
@@ -297,7 +319,7 @@ async def get_user_data(uid: str, request: Request):
         FROM users
         WHERE owner_firebase_uid = $1
     """
-    async with _db_pool.acquire() as conn:
+    async with get_pool().acquire() as conn:
         user_row = await conn.fetchrow(query, uid)
         if not user_row:
             raise HTTPException(status_code=404, detail="User not found")
@@ -336,7 +358,7 @@ async def get_my_home_listings(request: Request):
     ORDER BY sort_order;
     """
 
-    async with _db_pool.acquire() as conn:
+    async with get_pool().acquire() as conn:
         try:
             home_rows = await conn.fetch(query_home, uid)
 
@@ -344,12 +366,14 @@ async def get_my_home_listings(request: Request):
             token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
             for home_row in home_rows:
                 # Fetch images for this specific listing
-                image_rows = await conn.fetch(query_images, uid, home_row['listing_id'], token_prefix)
+                image_rows = await conn.fetch(
+                    query_images, uid, home_row["listing_id"], token_prefix
+                )
                 image_rows = [dict(img) for img in image_rows]
 
                 # Convert home row to dict and add images
                 home_dict = dict(home_row)
-                home_dict['images'] = image_rows
+                home_dict["images"] = image_rows
                 listings.append(home_dict)
 
             return listings
@@ -358,27 +382,25 @@ async def get_my_home_listings(request: Request):
             raise HTTPException(status_code=500, detail="Failed to fetch listings")
 
 
-
 @app.get("/api/homes")
 @limiter.limit("60/minute")
 async def get_home_listings(request: Request, owner_firebase_uid: str):
-  
-      # Verify user can only delete their own account
-      await verify_user_owns_resource(request, owner_firebase_uid)
 
+    # Verify user can only delete their own account
+    await verify_user_owns_resource(request, owner_firebase_uid)
 
-      query_home = """
+    query_home = """
       SELECT * FROM homes WHERE owner_firebase_uid = $1
       """
 
-      # query_images = """
-      # SELECT public_url,  tag, caption, is_hero, sort_order 
-      # FROM images 
-      # WHERE owner_firebase_uid = $1 AND category = 'home' AND listing_id = $2
-      # ORDER BY sort_order
-      # """
-      
-      query_images = """
+    # query_images = """
+    # SELECT public_url,  tag, caption, is_hero, sort_order
+    # FROM images
+    # WHERE owner_firebase_uid = $1 AND category = 'home' AND listing_id = $2
+    # ORDER BY sort_order
+    # """
+
+    query_images = """
       SELECT 
           public_url,
           'https://cdn.swapwithus.com/home/' ||
@@ -396,72 +418,76 @@ async def get_home_listings(request: Request, owner_firebase_uid: str):
       ORDER BY sort_order;
       """
 
-
-      async with _db_pool.acquire() as conn:
+    async with get_pool().acquire() as conn:
         try:
-          home_rows = await conn.fetch(query_home, owner_firebase_uid)
+            home_rows = await conn.fetch(query_home, owner_firebase_uid)
 
-          listings = []
-          token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
-          for home_row in home_rows:
-              # Fetch images for this specific listing
-              image_rows = await conn.fetch(query_images, owner_firebase_uid, home_row['listing_id'], token_prefix)
-              image_rows = [dict(img) for img in image_rows]
-              # for i, img in enumerate(image_rows):
-              #     public_url = img['public_url']
-              #     signed_url = append_token_to_url(public_url, token_prefix)
-              #     image_rows[i]['signed_url'] = signed_url
-              #     logger.info(signed_url)
+            listings = []
+            token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
+            for home_row in home_rows:
+                # Fetch images for this specific listing
+                image_rows = await conn.fetch(
+                    query_images, owner_firebase_uid, home_row["listing_id"], token_prefix
+                )
+                image_rows = [dict(img) for img in image_rows]
+                # for i, img in enumerate(image_rows):
+                #     public_url = img['public_url']
+                #     signed_url = append_token_to_url(public_url, token_prefix)
+                #     image_rows[i]['signed_url'] = signed_url
+                #     logger.info(signed_url)
 
-              # Convert home row to dict
-              listing = dict(home_row)
+                # Convert home row to dict
+                listing = dict(home_row)
 
-              # Add images as array
-              listing['images'] = image_rows
+                # Add images as array
+                listing["images"] = image_rows
 
-              # Find hero image, or use first image as fallback
-              hero_image = next((img for img in image_rows if img['is_hero']), None)
-              if hero_image:
-                  listing['hero_image_url'] = hero_image['signed_url']
-              elif image_rows:  # ← If no hero, use first image
-                  listing['hero_image_url'] = image_rows[0]['signed_url']
-              else:  # ← No images at all
-                  listing['hero_image_url'] = None
+                # Find hero image, or use first image as fallback
+                hero_image = next((img for img in image_rows if img["is_hero"]), None)
+                if hero_image:
+                    listing["hero_image_url"] = hero_image["signed_url"]
+                elif image_rows:  # ← If no hero, use first image
+                    listing["hero_image_url"] = image_rows[0]["signed_url"]
+                else:  # ← No images at all
+                    listing["hero_image_url"] = None
 
-              listings.append(listing)
+                listings.append(listing)
         except Exception as e:
-          print(f"❌ Error fetching listings: {e}")
-          import traceback
-          print(traceback.format_exc())
-          
+            print(f"❌ Error fetching listings: {e}")
+            import traceback
+
+            print(traceback.format_exc())
+
         finally:
-          return listings  # Return array directly, not {"listings": ...}
-        
-          # response will look like:
-          #   [
-          #     {
-          #       "listing_id": "uuid",
-          #       "title": "Beautiful Home",
-          #       "city": "Paris",
-          #       "hero_image_url": "https://storage.googleapis.com/.../image1.jpg",
-          #       "images": [
-          #         {
-          #           "cdn_url": "https://storage.googleapis.com/.../image1.jpg",
-          #           "tag": "living_room",
-          #           "description": "Living room",
-          #           "is_hero": true,
-          #           "sort_order": 0
-          #         },
-          #         {
-          #           "cdn_url": "https://storage.googleapis.com/.../image2.jpg",
-          #           "tag": "bedroom",
-          #           "description": "Master bedroom",
-          #           "is_hero": false,
-          #           "sort_order": 1
-          #         }
-          #       ],
-          #       ...other home fields
-          #     }
+            return listings  # Return array directly, not {"listings": ...}
+
+            # response will look like:
+            #   [
+            #     {
+            #       "listing_id": "uuid",
+            #       "title": "Beautiful Home",
+            #       "city": "Paris",
+            #       "hero_image_url": "https://storage.googleapis.com/.../image1.jpg",
+            #       "images": [
+            #         {
+            #           "cdn_url": "https://storage.googleapis.com/.../image1.jpg",
+            #           "tag": "living_room",
+            #           "description": "Living room",
+            #           "is_hero": true,
+            #           "sort_order": 0
+            #         },
+            #         {
+            #           "cdn_url": "https://storage.googleapis.com/.../image2.jpg",
+            #           "tag": "bedroom",
+            #           "description": "Master bedroom",
+            #           "is_hero": false,
+            #           "sort_order": 1
+            #         }
+            #       ],
+            #       ...other home fields
+            #     }
+
+
 #   ]
 
 
@@ -469,115 +495,115 @@ async def get_home_listings(request: Request, owner_firebase_uid: str):
 @limiter.limit("5/hour")
 async def delete_home_listing(request: Request, listing_id: str):
 
+    user_uid = await verify_firebase_token(request)
+    # Check if listing belongs to this user
+    async with get_pool().acquire() as conn:
+        listing_owner = await conn.fetchval(
+            "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1", listing_id
+        )
 
-  user_uid = await verify_firebase_token(request)
-  # Check if listing belongs to this user
-  async with _db_pool.acquire() as conn:
-      listing_owner = await conn.fetchval(
-          "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1",
-          listing_id
-      )
+        if not listing_owner:
+            raise HTTPException(404, "Listing not found")
 
-      if not listing_owner:
-          raise HTTPException(404, "Listing not found")
+        if listing_owner != user_uid:
+            raise HTTPException(403, "You don't own this listing")
 
-      if listing_owner != user_uid:
-          raise HTTPException(403, "You don't own this listing")
-
-
-  
-
-  query_delete_home = """
+    query_delete_home = """
   DELETE FROM homes WHERE listing_id = $1
   """
-  query_select_images = """
+    query_select_images = """
   SELECT public_url FROM images WHERE listing_id = $1
   """
 
-  async with _db_pool.acquire() as conn:
-    try:
-      async with conn.transaction():
-        urls = await conn.fetch(query_select_images, listing_id)
-        await conn.execute(query_delete_home, listing_id)
-        logger.info(f"Successfully deleted listing: {listing_id}")
+    async with get_pool().acquire() as conn:
+        try:
+            async with conn.transaction():
+                urls = await conn.fetch(query_select_images, listing_id)
+                await conn.execute(query_delete_home, listing_id)
+                logger.info(f"Successfully deleted listing: {listing_id}")
 
-      # Delete from storage after DB transaction
-      for url in urls:
-        delete_image_from_storage(url['public_url'])
-      logger.info(f"Successfully deleted images from storage for listing: {listing_id}")
+            # Delete from storage after DB transaction
+            for url in urls:
+                await delete_image_from_storage(url["public_url"])
+            logger.info(f"Successfully deleted images from storage for listing: {listing_id}")
 
-      return {"message": "Listing deleted successfully with its corresponding images from image table and storage"}
-    except Exception as e:
-      print(f"❌ Error deleting listing: {e}")
-      import traceback
-      print(traceback.format_exc())
-      raise HTTPException(status_code=500, detail="Failed to delete listing")
+            return {
+                "message": "Listing deleted successfully with its corresponding images from image table and storage"
+            }
+        except Exception as e:
+            print(f"❌ Error deleting listing: {e}")
+            import traceback
+
+            print(traceback.format_exc())
+            raise HTTPException(status_code=500, detail="Failed to delete listing")
 
 
 @app.post("/api/homes")
 @limiter.limit("15/hour")
-async def create_home_listing(request: Request, listing:str =  Form(...), images: List[UploadFile] = File(...)):
-  # Verify user is authenticated and extract UID
-  user_uid = await verify_firebase_token(request)
+async def create_home_listing(
+    request: Request, listing: str = Form(...), images: List[UploadFile] = File(...)
+):
+    # Verify user is authenticated and extract UID
+    user_uid = await verify_firebase_token(request)
 
-  uploaded_urls = []
-  try:
-    # Simulate saving to database and getting an ID
-    listing_data = HomeListingCreate.model_validate_json(listing)
-    listing_data_dict = listing_data.model_dump(exclude_none=True)
+    uploaded_urls = []
+    try:
+        # Simulate saving to database and getting an ID
+        listing_data = HomeListingCreate.model_validate_json(listing)
+        listing_data_dict = listing_data.model_dump(exclude_none=True)
 
-    user_data = FirebaseUserIfNotExists.model_validate_json(listing)
-    user_data_dict = user_data.model_dump(exclude_none=True)
+        user_data = FirebaseUserIfNotExists.model_validate_json(listing)
+        user_data_dict = user_data.model_dump(exclude_none=True)
 
-    # Verify the token UID matches the listing owner
-    if user_data_dict.get("owner_firebase_uid") != user_uid:
-        raise HTTPException(403, "Cannot create listing for another user")
+        # Verify the token UID matches the listing owner
+        if user_data_dict.get("owner_firebase_uid") != user_uid:
+            raise HTTPException(403, "Cannot create listing for another user")
 
-    metadata_collection = ImageMetadataCollection.model_validate_json(listing)
-    metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
-    images_metadata = metadata_collection_dict['images_metadata']
+        metadata_collection = ImageMetadataCollection.model_validate_json(listing)
+        metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
+        images_metadata = metadata_collection_dict["images_metadata"]
 
-    # deleted_urls = metadata_collection.deleted_public_urls
+        # deleted_urls = metadata_collection.deleted_public_urls
 
-
-
-
-
-    create_user_query = """
+        create_user_query = """
                         insert into users (owner_firebase_uid, email, name, profile_image, created_at, updated_at)
                         values ($1, $2, $3, $4, NOW(), NOW()) ON CONFLICT (owner_firebase_uid) DO NOTHING
                         """
 
+        generated_listing_id = str(uuid.uuid4())
+        listing_data_dict["listing_id"] = generated_listing_id
 
-    generated_listing_id = str(uuid.uuid4())
-    listing_data_dict["listing_id"] = generated_listing_id
+        print("New listing data:", listing_data_dict)
+        print("Received image files:", [file.filename for file in images])
 
-    print("New listing data:", listing_data_dict)
-    print("Received image files:", [file.filename for file in images])
+        async with get_pool().acquire() as conn:
+            async with conn.transaction():
+                db_manager = DbManager()
+                await conn.execute(
+                    create_user_query,
+                    user_data_dict.get("owner_firebase_uid"),
+                    user_data_dict.get("email"),
+                    user_data_dict.get("name"),
+                    user_data_dict.get("profile_image"),
+                )
+                await db_manager.create_record_in_table(_db_pool, listing_data_dict, "homes")
 
+                # TODO: optimize the image before uploading them using the method optimize_image.py (based on pillow library)
+                image_table_records = []
+                for index, metadata in enumerate(images_metadata):
+                    image_url = await upload_photo_to_storage(
+                        images[index], listing_id=generated_listing_id, category="home"
+                    )
+                    uploaded_urls.append(image_url)
+                    image_record = metadata.copy()
+                    image_record["owner_firebase_uid"] = listing_data_dict.get("owner_firebase_uid")
+                    image_record["listing_id"] = generated_listing_id
+                    image_record["category"] = "home"
+                    image_record["public_url"] = image_url
 
-    async with _db_pool.acquire() as conn:
-      async with conn.transaction():
-        db_manager = DbManager()
-        await conn.execute(create_user_query, user_data_dict.get("owner_firebase_uid"), user_data_dict.get("email"), user_data_dict.get("name"), user_data_dict.get("profile_image"))
-        await db_manager.create_record_in_table(_db_pool, listing_data_dict, "homes")
+                    image_table_records.append(image_record)
 
-        # TODO: optimize the image before uploading them using the method optimize_image.py (based on pillow library)
-        image_table_records = []
-        for index, metadata in enumerate(images_metadata):
-          image_url = await upload_photo_to_storage(images[index], listing_id = generated_listing_id, category="home")
-          uploaded_urls.append(image_url)
-          image_record = metadata.copy()
-          image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
-          image_record['listing_id'] = generated_listing_id
-          image_record['category'] = 'home'
-          image_record['public_url'] = image_url
-
-
-          image_table_records.append(image_record)
-
-
-        insert_query = """
+                insert_query = """
           INSERT INTO images (
               owner_firebase_uid,
               listing_id,
@@ -591,45 +617,51 @@ async def create_home_listing(request: Request, listing:str =  Form(...), images
           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
       """
 
-        # Prepare data as list of tuples
-        image_data = [
-            (
-                record['owner_firebase_uid'],
-                record['listing_id'],
-                record['category'],
-                record['public_url'],
-                record['tag'],
-                record['caption'],  # caption goes into description column
-                record['is_hero'],
-                record['sort_order']
-            )
-            for record in image_table_records
-        ]
+                # Prepare data as list of tuples
+                image_data = [
+                    (
+                        record["owner_firebase_uid"],
+                        record["listing_id"],
+                        record["category"],
+                        record["public_url"],
+                        record["tag"],
+                        record["caption"],  # caption goes into description column
+                        record["is_hero"],
+                        record["sort_order"],
+                    )
+                    for record in image_table_records
+                ]
 
-        await conn.executemany(insert_query, image_data)
+                await conn.executemany(insert_query, image_data)
 
+        # Here you would save the listing data and images to your database/storage
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": str(generated_listing_id),
+                "message": "Home listing created successfully",
+            },
+        )
 
+    except Exception as e:
+        import traceback
 
-    # Here you would save the listing data and images to your database/storage
-    return JSONResponse(status_code=201, content={"id": str(generated_listing_id), "message": "Home listing created successfully"})
+        logger.error("=" * 50)
+        logger.error("ERROR OCCURRED:")
+        logger.error("Error type: %s", type(e).__name__)
+        logger.error("Error message: %s", str(e))
+        logger.error("=" * 50)
+        logger.error("FULL TRACEBACK: %s", traceback.format_exc())
 
-  except Exception as e:
-          import traceback
-          logger.error("=" * 50)
-          logger.error("ERROR OCCURRED:")
-          logger.error("Error type: %s", type(e).__name__)
-          logger.error("Error message: %s", str(e))
-          logger.error("=" * 50)
-          logger.error("FULL TRACEBACK: %s", traceback.format_exc())
-
-          # Clean up uploaded images on failure
-          for url in uploaded_urls:
+        # Clean up uploaded images on failure
+        for url in uploaded_urls:
             try:
-              delete_image_from_storage(url)
+                await delete_image_from_storage(url)
             except Exception as cleanup_error:
-              logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
+                logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
 
-          raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 # When: After Firebase signup (email/password, Google, or Facebook)
 @app.post("/api/users")
@@ -647,9 +679,16 @@ async def create_user(request: Request, user: UserCreate):
         user_dict = user.model_dump()
         await db_manager.create_record_in_table(_db_pool, user_dict, "users")
         logger.info("New user UID from DB: %s", user_dict.get("owner_firebase_uid"))
-        return JSONResponse(status_code=201, content={"uid": user_dict.get("owner_firebase_uid"), "message": "User created successfully"})
+        return JSONResponse(
+            status_code=201,
+            content={
+                "uid": user_dict.get("owner_firebase_uid"),
+                "message": "User created successfully",
+            },
+        )
     except Exception as e:
         import traceback
+
         logger.error("Error occurred while creating user: %s", str(e))
         logger.error("Error type: %s", type(e).__name__)
         logger.error("Error message: %s", str(e))
@@ -660,102 +699,93 @@ async def create_user(request: Request, user: UserCreate):
 @app.put("/api/homes/{listing_id}")
 @limiter.limit("10/minute")
 async def update_home_listing(
-      request: Request,
-      listing_id: str,
-      listing: str = Form(...),
-      images: List[UploadFile] = File(default=[])
-      ):
+    request: Request,
+    listing_id: str,
+    listing: str = Form(...),
+    images: List[UploadFile] = File(default=[]),
+):
 
-      # Verify user is authenticated
-      user_uid = await verify_firebase_token(request)
+    # Verify user is authenticated
+    user_uid = await verify_firebase_token(request)
 
-      # Check if listing belongs to this user
-      async with _db_pool.acquire() as conn:
-          listing_owner = await conn.fetchval(
-              "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1",
-              listing_id
-          )
+    # Check if listing belongs to this user
+    async with get_pool().acquire() as conn:
+        listing_owner = await conn.fetchval(
+            "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1", listing_id
+        )
 
-          if not listing_owner:
-              raise HTTPException(404, "Listing not found")
+        if not listing_owner:
+            raise HTTPException(404, "Listing not found")
 
-          if listing_owner != user_uid:
-              raise HTTPException(403, "You don't own this listing")
+        if listing_owner != user_uid:
+            raise HTTPException(403, "You don't own this listing")
 
-      uploaded_urls = []
-      try:
-          # Parse form data
-          # print("Received listing JSON:", listing)
-          listing_data = HomeListingCreate.model_validate_json(listing)
-          listing_data_dict = listing_data.model_dump(exclude_none=True)
+    uploaded_urls = []
+    try:
+        # Parse form data
+        # print("Received listing JSON:", listing)
+        listing_data = HomeListingCreate.model_validate_json(listing)
+        listing_data_dict = listing_data.model_dump(exclude_none=True)
 
+        metadata_collection = ImageMetadataCollection.model_validate_json(listing)
+        metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
+        images_metadata = metadata_collection_dict["images_metadata"]
+        deleted_urls = metadata_collection_dict.get("deleted_public_urls", None)
 
+        print("===================================")
+        print("metadata images is :", images_metadata)
 
-          metadata_collection = ImageMetadataCollection.model_validate_json(listing)
-          metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
-          images_metadata = metadata_collection_dict['images_metadata']
-          deleted_urls = metadata_collection_dict.get('deleted_public_urls', None)
+        # Extract deleted URLs from listing JSON
+        deleted_urls = metadata_collection_dict.get("deleted_public_urls", [])
 
+        # print("Updating listing:", listing_id)
+        # print("Listing data:", listing_data_dict)
+        # print("Image metadata:", image_metadata)
+        # print("Received new image files:", len(images))
+        # print("Deleted URLs:", deleted_urls)
 
-
-
-          print("===================================")
-          print("metadata images is :", images_metadata)
-
-          # Extract deleted URLs from listing JSON
-          deleted_urls = metadata_collection_dict.get('deleted_public_urls', [])
-
-
-          # print("Updating listing:", listing_id)
-          # print("Listing data:", listing_data_dict)
-          # print("Image metadata:", image_metadata)
-          # print("Received new image files:", len(images))
-          # print("Deleted URLs:", deleted_urls)
-
-          async with _db_pool.acquire() as conn:
+        async with get_pool().acquire() as conn:
             async with conn.transaction():
-              db_manager = DbManager()
+                db_manager = DbManager()
 
-              # 1. Update listing data in homes table
-              await db_manager.update_record_in_table(
-                  _db_pool,
-                  listing_data_dict,
-                  "homes",
-                  "listing_id",
-                  listing_id
-              )
+                # 1. Update listing data in homes table
+                await db_manager.update_record_in_table(
+                    _db_pool, listing_data_dict, "homes", "listing_id", listing_id
+                )
 
-              # 2. Delete removed images from DB
-              if deleted_urls:
-                  for public_url in deleted_urls:
-                      try:
-                          await conn.execute("DELETE FROM images WHERE public_url = $1 AND listing_id = $2", public_url, listing_id)
-                      except Exception as e:
-                          print(f"Error deleting image {public_url}: {e}")
+                # 2. Delete removed images from DB
+                if deleted_urls:
+                    for public_url in deleted_urls:
+                        try:
+                            await conn.execute(
+                                "DELETE FROM images WHERE public_url = $1 AND listing_id = $2",
+                                public_url,
+                                listing_id,
+                            )
+                        except Exception as e:
+                            print(f"Error deleting image {public_url}: {e}")
 
+                image_records = []
 
+                # print("Public URLs from metadata:", public_urls)
+                image_index = 0
+                for metadata in images_metadata:
+                    image_record = metadata.copy()
+                    print("this is public url:", image_record.get("public_url", ""))
+                    if image_record["public_url"] == "":
+                        image_record["public_url"] = await upload_photo_to_storage(
+                            images[image_index], listing_id=listing_id, category="home"
+                        )
+                        uploaded_urls.append(image_record["public_url"])
+                        image_index += 1
+                    image_record["owner_firebase_uid"] = listing_data_dict.get("owner_firebase_uid")
+                    image_record["listing_id"] = listing_id
+                    image_record["category"] = "home"
+                    image_records.append(image_record)
+                print("Final image records to insert/update:", image_records)
 
-              image_records = []
-
-              # print("Public URLs from metadata:", public_urls)
-              image_index = 0
-              for metadata in images_metadata:
-                image_record = metadata.copy()
-                print("this is public url:", image_record.get('public_url', ''))
-                if image_record['public_url'] == '':
-                  image_record['public_url'] = await upload_photo_to_storage(images[image_index], listing_id=listing_id, category="home")
-                  uploaded_urls.append(image_record['public_url'])
-                  image_index += 1
-                image_record['owner_firebase_uid'] = listing_data_dict.get("owner_firebase_uid")
-                image_record['listing_id'] = listing_id
-                image_record['category'] = 'home'
-                image_records.append(image_record)
-              print("Final image records to insert/update:", image_records)
-
-
-
-              if image_records:
-                  insert_query = """
+                if image_records:
+                    insert_query = """
                       INSERT INTO images (
                           owner_firebase_uid,
                           listing_id,
@@ -776,51 +806,52 @@ async def update_home_listing(
 
                   """
 
-                  image_data = [
-                      (
-                          record['owner_firebase_uid'],
-                          record['listing_id'],
-                          record['category'],
-                          record['public_url'],
-                          record['tag'],
-                          record['caption'],
-                          record['is_hero'],
-                          record['sort_order']
-                      )
-                      for record in image_records
-                  ]
+                    image_data = [
+                        (
+                            record["owner_firebase_uid"],
+                            record["listing_id"],
+                            record["category"],
+                            record["public_url"],
+                            record["tag"],
+                            record["caption"],
+                            record["is_hero"],
+                            record["sort_order"],
+                        )
+                        for record in image_records
+                    ]
 
-                  await conn.executemany(insert_query, image_data)
+                    await conn.executemany(insert_query, image_data)
 
-          # Delete removed images from storage after successful DB transaction
-          if deleted_urls:
-              for public_url in deleted_urls:
-                  try:
-                      await delete_image_from_storage(public_url)
-                  except Exception as e:
-                      print(f"Error deleting image from storage {public_url}: {e}")
+        # Delete removed images from storage after successful DB transaction
+        if deleted_urls:
+            for public_url in deleted_urls:
+                try:
+                    await delete_image_from_storage(public_url)
+                except Exception as e:
+                    print(f"Error deleting image from storage {public_url}: {e}")
 
-          return {
-              "success": True,
-              "listing_id": listing_id,
-              "message": "Listing updated successfully",
-              "images_updated": len(image_records),
-              "images_deleted": len(deleted_urls)
-          }
+        return {
+            "success": True,
+            "listing_id": listing_id,
+            "message": "Listing updated successfully",
+            "images_updated": len(image_records),
+            "images_deleted": len(deleted_urls),
+        }
 
-      except Exception as e:
-          print(f"Error updating listing: {e}")
-          import traceback
-          traceback.print_exc()
+    except Exception as e:
+        print(f"Error updating listing: {e}")
+        import traceback
 
-          # Clean up uploaded images on failure
-          for url in uploaded_urls:
+        traceback.print_exc()
+
+        # Clean up uploaded images on failure
+        for url in uploaded_urls:
             try:
-              delete_image_from_storage(url)
+                await delete_image_from_storage(url)
             except Exception as cleanup_error:
-              print(f"Failed to cleanup image {url}: {cleanup_error}")
+                print(f"Failed to cleanup image {url}: {cleanup_error}")
 
-          raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail=str(e))
 
 
 # DELETE /api/users/{uid} (Delete Account)
@@ -829,46 +860,57 @@ async def update_home_listing(
 async def delete_user(request: Request, uid: str):
     # Verify user can only delete their own account
     await verify_user_owns_resource(request, uid)
-    
+
     try:
-        async with _db_pool.acquire() as conn:
+        async with get_pool().acquire() as conn:
             # First delete user's listings (if any)
-            exist_user = await conn.fetchval("SELECT 1 FROM users WHERE owner_firebase_uid = $1", uid)
+            exist_user = await conn.fetchval(
+                "SELECT 1 FROM users WHERE owner_firebase_uid = $1", uid
+            )
             if not exist_user:
                 print("No listings found for user, skipping deletion of listings.")
-                return JSONResponse(status_code=200, content={"message": "User not in database but deleted successfully"})
+                return JSONResponse(
+                    status_code=200,
+                    content={"message": "User not in database but deleted successfully"},
+                )
 
             async with conn.transaction():
-              # Get all images to delete from storage (simpler query)
-              image_urls = await conn.fetch("SELECT public_url FROM images WHERE owner_firebase_uid = $1", uid)
+                # Get all images to delete from storage (simpler query)
+                image_urls = await conn.fetch(
+                    "SELECT public_url FROM images WHERE owner_firebase_uid = $1", uid
+                )
 
-              # Delete user (CASCADE will delete homes and images from DB)
-              result = await conn.execute("DELETE FROM users WHERE owner_firebase_uid = $1", uid)
-              if result == "DELETE 0":
-                  raise HTTPException(status_code=404, detail="User not found")
+                # Delete user (CASCADE will delete homes and images from DB)
+                result = await conn.execute("DELETE FROM users WHERE owner_firebase_uid = $1", uid)
+                if result == "DELETE 0":
+                    raise HTTPException(status_code=404, detail="User not found")
 
             # Delete images from storage after DB transaction
             for image in image_urls:
-                delete_image_from_storage(image['public_url'])
+                await delete_image_from_storage(image["public_url"])
 
             logger.info(f"Successfully deleted user and images for userID: {uid}")
-            return JSONResponse(status_code=200, content={"message": "User and related data deleted successfully"})
+            return JSONResponse(
+                status_code=200, content={"message": "User and related data deleted successfully"}
+            )
 
     except Exception as e:
-          import traceback
-          print("=" * 50)
-          print("ERROR OCCURRED:")
-          print(traceback.format_exc())
-          print("=" * 50)
-          raise HTTPException(status_code=500, detail=str(e))
+        import traceback
+
+        print("=" * 50)
+        print("ERROR OCCURRED:")
+        print(traceback.format_exc())
+        print("=" * 50)
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @app.patch("/api/users/{uid}")
 @limiter.limit("10/minute")
 async def update_user(request: Request, uid: str, user: UserUpdate):
-  
-  # Verify user can only update their own account
-  await verify_user_owns_resource(request, uid)
-  query = """   UPDATE users
+
+    # Verify user can only update their own account
+    await verify_user_owns_resource(request, uid)
+    query = """   UPDATE users
                 SET
                 name = $1,
                 phone_country_code = $2,
@@ -879,66 +921,66 @@ async def update_user(request: Request, uid: str, user: UserUpdate):
                 profile_image = $7,
                 updated_at = NOW()
                 WHERE owner_firebase_uid = $8 """
-  user_dict = user.model_dump(exclude_none=True)
-  print("Updating user with data:", user_dict)
-  logging.info("Updating user with data:", user_dict)
-  try:
-    async with _db_pool.acquire() as conn:
-      result = await conn.execute(query,
-                                  user_dict.get("name"),
-                                  user_dict.get("phone_country_code"),
-                                  user_dict.get("phone_number"),
-                                  user_dict.get("linkedin_url"),
-                                  user_dict.get("instagram_id"),
-                                  user_dict.get("facebook_id"),
-                                  user_dict.get("profile_image"),
-                                  uid)
-      if result == "UPDATE 0":
-          raise HTTPException(status_code=404, detail="User not found")
-      logging.info(f"Successfully updated user: {uid}")
-      return JSONResponse(status_code=200, content={"message": "User updated successfully"})
-  except Exception as e:
-      import traceback
-      logging.error("=" * 50)
-      logging.error("ERROR OCCURRED:")
-      logging.error("Error type: %s", type(e).__name__)
-      logging.error("Error message: %s", str(e))
-      logging.error("=" * 50)
+    user_dict = user.model_dump(exclude_none=True)
+    print("Updating user with data:", user_dict)
+    logging.info("Updating user with data:", user_dict)
+    try:
+        async with get_pool().acquire() as conn:
+            result = await conn.execute(
+                query,
+                user_dict.get("name"),
+                user_dict.get("phone_country_code"),
+                user_dict.get("phone_number"),
+                user_dict.get("linkedin_url"),
+                user_dict.get("instagram_id"),
+                user_dict.get("facebook_id"),
+                user_dict.get("profile_image"),
+                uid,
+            )
+            if result == "UPDATE 0":
+                raise HTTPException(status_code=404, detail="User not found")
+            logging.info(f"Successfully updated user: {uid}")
+            return JSONResponse(status_code=200, content={"message": "User updated successfully"})
+    except Exception as e:
 
-
-from async_lru import alru_cache
+        logging.error("=" * 50)
+        logging.error("ERROR OCCURRED:")
+        logging.error("Error type: %s", type(e).__name__)
+        logging.error("Error message: %s", str(e))
+        logging.error("=" * 50)
 
 
 # from fastapi import Response
 @app.get("/browse")
 @limiter.limit("30/minute")
-@alru_cache(maxsize=5, ttl = 9*3600)
+@alru_cache(maxsize=5, ttl=9 * 3600)
 async def browse_homes(request: Request):
-  import time
-  tick = time.time()
-  try:
-    token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
+    import time
 
-    print("Inside browse homes")
-    # query_home = """
-    #   SELECT
-    #   h.*,
-    #   json_agg(
-    #     json_build_object(
-    #       'id', i.listing_id,
-    #       'public_url', i.public_url,
-    #       'tag', i.tag,
-    #       'caption', i.caption,
-    #       'is_hero', i.is_hero
-    #     ) ORDER BY i.is_hero DESC  -- <-- true comes first
-    #   ) AS images
-    # FROM homes h
-    # INNER JOIN images i ON i.listing_id = h.listing_id
-    # GROUP BY h.listing_id;
+    tick = time.time()
+    try:
+        token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
 
-    #   """
-    
-    query_home = """
+        print("Inside browse homes")
+        # query_home = """
+        #   SELECT
+        #   h.*,
+        #   json_agg(
+        #     json_build_object(
+        #       'id', i.listing_id,
+        #       'public_url', i.public_url,
+        #       'tag', i.tag,
+        #       'caption', i.caption,
+        #       'is_hero', i.is_hero
+        #     ) ORDER BY i.is_hero DESC  -- <-- true comes first
+        #   ) AS images
+        # FROM homes h
+        # INNER JOIN images i ON i.listing_id = h.listing_id
+        # GROUP BY h.listing_id;
+
+        #   """
+
+        query_home = """
     SELECT
         h.*,
         json_agg(
@@ -958,93 +1000,83 @@ async def browse_homes(request: Request):
     INNER JOIN images i ON i.listing_id = h.listing_id
     GROUP BY h.listing_id;
     """
-          
-      
 
-    # expiration = 3600  # 1 hour
-    # cookies_value = generate_signed_cookie(expiration=3600)
-    # logging.info("Generated cookies value:{cookies_value}" )
-    # cookies_response = {"cdn_cookies": {
-    #           "name": "Cloud-CDN-Cookie",
-    #           "value": cookies_value,
-    #           "expires": expiration,
-    #           "domain": ".swapwithus.com"
-    #       }}
+        # expiration = 3600  # 1 hour
+        # cookies_value = generate_signed_cookie(expiration=3600)
+        # logging.info("Generated cookies value:{cookies_value}" )
+        # cookies_response = {"cdn_cookies": {
+        #           "name": "Cloud-CDN-Cookie",
+        #           "value": cookies_value,
+        #           "expires": expiration,
+        #           "domain": ".swapwithus.com"
+        #       }}
 
+        # response.set_cookie(
+        #       key="Cloud-CDN-Cookie",
+        #       value=cookies_value,
+        #       max_age=3600,
+        #       domain=".swapwithus.com",  # Works for www.swapwithus.com AND cdn.swapwithus.com
+        #       secure=True,
+        #       httponly=False,  # Must be False so images can use it
+        #       samesite="none"
+        #   )
 
-    
-    # response.set_cookie(
-    #       key="Cloud-CDN-Cookie",
-    #       value=cookies_value,
-    #       max_age=3600,
-    #       domain=".swapwithus.com",  # Works for www.swapwithus.com AND cdn.swapwithus.com
-    #       secure=True,
-    #       httponly=False,  # Must be False so images can use it
-    #       samesite="none"
-    #   )
+        async with get_pool().acquire() as conn:
+            homes_list = await conn.fetch(query_home, token_prefix)
+            import json
 
+            # homes_list = [dict(l) for l in homes_list]
+            # pprint(homes_list)
+            # res = json.dumps(homes_list, indent=2, default=str)
+            if not homes_list:
+                return JSONResponse(status_code=404, content={"message": "No homes found"})
 
-    async with _db_pool.acquire() as conn:
-      homes_list = await conn.fetch(query_home, token_prefix)
-      from pprint import pprint
-      import json
-      # homes_list = [dict(l) for l in homes_list]
-      # pprint(homes_list)
-      # res = json.dumps(homes_list, indent=2, default=str)
-      if not homes_list:
-          return JSONResponse(status_code=404, content={"message": "No homes found"})
-        
-      # After fetching from DB
-      homes_dict = [dict(home) for home in homes_list]
+            # After fetching from DB
+            homes_dict = [dict(home) for home in homes_list]
 
-      # Parse the images JSON string for each home
-      for home in homes_dict:
-          if isinstance(home.get('images'), str):
-              home['images'] = json.loads(home['images'])
-              # for img in home['images']:
-              #     print(img['public_url'], "\n----\n")
-              #     print(img['signed_url'])
-              #     signed_url = append_token_to_url(img['public_url'], token_prefix)
-              #     img['signed_url'] = signed_url
-              #     logging.info(signed_url)
+            # Parse the images JSON string for each home
+            for home in homes_dict:
+                if isinstance(home.get("images"), str):
+                    home["images"] = json.loads(home["images"])
+                    # for img in home['images']:
+                    #     print(img['public_url'], "\n----\n")
+                    #     print(img['signed_url'])
+                    #     signed_url = append_token_to_url(img['public_url'], token_prefix)
+                    #     img['signed_url'] = signed_url
+                    #     logging.info(signed_url)
 
-      tock = time.time()
-      logging.info(f"Browse homes took {tock - tick} seconds")
-      return {"homes": homes_dict}
-    
-      # return {"homes": homes_list, **cookies_response}
-    
-  except Exception as e:
-      import traceback
-      logging.error("=" * 50)
-      logging.error("ERROR OCCURRED:")
-      logging.error("Error type: %s", type(e).__name__)
-      logging.error("Error message: %s", str(e))
-      logging.error("=" * 50)
-      raise HTTPException(status_code=500, detail="Internal Server Error")
+            tock = time.time()
+            logging.info(f"Browse homes took {tock - tick} seconds")
+            return {"homes": homes_dict}
 
+            # return {"homes": homes_list, **cookies_response}
 
+    except Exception as e:
 
+        logging.error("=" * 50)
+        logging.error("ERROR OCCURRED:")
+        logging.error("Error type: %s", type(e).__name__)
+        logging.error("Error message: %s", str(e))
+        logging.error("=" * 50)
+        raise HTTPException(status_code=500, detail="Internal Server Error")
 
 
 if __name__ == "__main__":
-  
-  import uvicorn
-  uvicorn.run(app, host="0.0.0.0", port=8000)
-  
-  
-  
-  
-  # Summary Table
 
-  # | Page     | Method         | Calls POST /api/users? | Problem?                              |
-  # |----------|----------------|------------------------|---------------------------------------|
-  # | Register | Email/Password | ✅ Yes                  | No                                    |
-  # | Register | Google         | ✅ Yes (always)         | ⚠️ Should only create if new          |
-  # | Register | Facebook       | ✅ Yes (always)         | ⚠️ Should only create if new          |
-  # | Login    | Email/Password | ❌ No                   | ⚠️ Won't sync if user missing from DB |
-  # | Login    | Google         | ❌ No                   | ⚠️ Won't sync if user missing from DB |
-  # | Login    | Facebook       | ❌ No                   | ⚠️ Won't sync if user missing from DB |
+    import uvicorn
+
+    uvicorn.run(app, host="0.0.0.0", port=8000)
+
+    # Summary Table
+
+    # | Page     | Method         | Calls POST /api/users? | Problem?                              |
+    # |----------|----------------|------------------------|---------------------------------------|
+    # | Register | Email/Password | ✅ Yes                  | No                                    |
+    # | Register | Google         | ✅ Yes (always)         | ⚠️ Should only create if new          |
+    # | Register | Facebook       | ✅ Yes (always)         | ⚠️ Should only create if new          |
+    # | Login    | Email/Password | ❌ No                   | ⚠️ Won't sync if user missing from DB |
+    # | Login    | Google         | ❌ No                   | ⚠️ Won't sync if user missing from DB |
+    # | Login    | Facebook       | ❌ No                   | ⚠️ Won't sync if user missing from DB |
 
 # The Issues
 
@@ -1072,157 +1104,142 @@ if __name__ == "__main__":
 #   Instead of calling POST from register/login pages, do it once in AuthContext when user loads:
 
 
+# # Simulating receiving JSON from frontend (string)
+# json_string = '''{
+#   "owner_firebase_uid": "qWMimoFaXQf5oTHEnNyD1J3L6sH2",
+#   "title": "Cozy townhouse in f Esch-Sur-Alzette",
+#   "description": "fsdf sdf sd fdfsf sdfsdfdsfsfsf",
+#   "city": "Esch-Sur-Alzette",
+#   "country": "LU",
+#   "streetAddress": "4, Boulevard des Lumieres, room number 4",
+#   "postalCode": "4369",
+#   "latitude": "49.5043904",
+#   "longitude": "5.9478725",
+#   "availableFrom": "2025-10-07",
+#   "availableUntil": "2025-10-21",
+#   "isFlexible": false,
+#   "propertyType": "townhouse",
+#   "accommodationType": "private_room",
+#   "residenceType": "primary",
+#   "bedrooms": "2",
+#   "fullBathrooms": 3,
+#   "halfBathrooms": 3,
+#   "maxGuests": "3",
+#   "sizeInput": "100",
+#   "sizeUnit": "ft2",
+#   "sizeM2": "9",
+#   "mainResidence": false,
+#   "parkingType": "driveway",
+#   "surroundingsType": "forest",
+#   "accessibilityFeatures": ["elevator"],
+#   "has_wifi": true,
+#   "has_kitchen": false,
+#   "has_washer": false,
+#   "has_heating": false,
+#   "has_linens": false,
+#   "has_towels": false,
+#   "amenities": {
+#     "kitchen": ["stove", "dishwasher"],
+#     "laundry": ["iron"],
+#     "workEntertainment": ["monitor"],
+#     "outdoor": ["outdoor_seating"],
+#     "family": ["stair_gates"],
+#     "comfortClimate": ["fans"],
+#     "safety": []
+#   },
+#   "wifiMbpsDown": "423424",
+#   "wifiMbpsUp": "3424322",
+#   "houseRules": ["pets-allowed", "no-parties"],
+#   "openToCarSwap": true,
+#   "requireCarSwapMatch": true,
+#   "carDetails": {
+#     "makeModelYear": "vovo",
+#     "transmission": "manual",
+#     "fuelType": "hybrid",
+#     "seats": "4",
+#     "minDriverAge": "25",
+#     "mileageLimit": "148",
+#     "pickupNote": "key sdsfdfs "
+#   }
+# }'''
 
-  # # Simulating receiving JSON from frontend (string)
-  # json_string = '''{
-  #   "owner_firebase_uid": "qWMimoFaXQf5oTHEnNyD1J3L6sH2",
-  #   "title": "Cozy townhouse in f Esch-Sur-Alzette",
-  #   "description": "fsdf sdf sd fdfsf sdfsdfdsfsfsf",
-  #   "city": "Esch-Sur-Alzette",
-  #   "country": "LU",
-  #   "streetAddress": "4, Boulevard des Lumieres, room number 4",
-  #   "postalCode": "4369",
-  #   "latitude": "49.5043904",
-  #   "longitude": "5.9478725",
-  #   "availableFrom": "2025-10-07",
-  #   "availableUntil": "2025-10-21",
-  #   "isFlexible": false,
-  #   "propertyType": "townhouse",
-  #   "accommodationType": "private_room",
-  #   "residenceType": "primary",
-  #   "bedrooms": "2",
-  #   "fullBathrooms": 3,
-  #   "halfBathrooms": 3,
-  #   "maxGuests": "3",
-  #   "sizeInput": "100",
-  #   "sizeUnit": "ft2",
-  #   "sizeM2": "9",
-  #   "mainResidence": false,
-  #   "parkingType": "driveway",
-  #   "surroundingsType": "forest",
-  #   "accessibilityFeatures": ["elevator"],
-  #   "has_wifi": true,
-  #   "has_kitchen": false,
-  #   "has_washer": false,
-  #   "has_heating": false,
-  #   "has_linens": false,
-  #   "has_towels": false,
-  #   "amenities": {
-  #     "kitchen": ["stove", "dishwasher"],
-  #     "laundry": ["iron"],
-  #     "workEntertainment": ["monitor"],
-  #     "outdoor": ["outdoor_seating"],
-  #     "family": ["stair_gates"],
-  #     "comfortClimate": ["fans"],
-  #     "safety": []
-  #   },
-  #   "wifiMbpsDown": "423424",
-  #   "wifiMbpsUp": "3424322",
-  #   "houseRules": ["pets-allowed", "no-parties"],
-  #   "openToCarSwap": true,
-  #   "requireCarSwapMatch": true,
-  #   "carDetails": {
-  #     "makeModelYear": "vovo",
-  #     "transmission": "manual",
-  #     "fuelType": "hybrid",
-  #     "seats": "4",
-  #     "minDriverAge": "25",
-  #     "mileageLimit": "148",
-  #     "pickupNote": "key sdsfdfs "
-  #   }
-  # }'''
-  
-  # listing_data = HomeListingCreate.model_validate_json(json_string)  # Pydantic object
-  # print(listing_data.title)
-  # data_dict = listing_data.model_dump(exclude_none=True)     # Python dict
-  # print (**data_dict)
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-  
-    
-    
-  # Endpoint: POST /api/users
-
-  # When: After successful Firebase signup (email/password, Google, or Facebook)
-
-  # Request body:
-  # {
-  #   "firebase_uid": "qWMimoFaXQf5oTHEnNyD1J3L6sH2",
-  #   "email": "user@example.com",
-  #   "name": "John Doe",
-  #   "profile_image": "https://...",
-  #   "isEmailVerified": true
-  # }
-
-  # SQL:
-  # INSERT INTO users (firebase_uid, email, name, profile_image, isEmailVerified, created_at, updated_at)
-  # VALUES (...)
-  # RETURNING *;
-
-  # ---
-  # 2. Update User (called when user edits profile)
-
-  # Endpoint: PATCH /api/users/{firebase_uid} : use patch not put
-
-  # When: User clicks "Save Changes" on profile page
-
-  # Request body:
-  # {
-  #   "name": "John Doe",
-  #   "phoneCountryCode": "+352",
-  #   "phoneNumber": "123456",
-  #   "linkedinUrl": "...",
-  #   "instagramId": "...",
-  #   "facebookId": "...",
-  #   "profile_image": "..."
-  # }
-
-  # SQL:
-  # UPDATE users
-  # SET name = $1, phoneCountryCode = $2, phoneNumber = $3, ..., updated_at = NOW()
-  # WHERE firebase_uid = $10
-  # RETURNING *;
-
-  # ---
-  # 3. Delete User (called when user deletes account)
-
-  # Endpoint: DELETE /api/users/{firebase_uid}
-
-  # When: User confirms account deletion
-
-  # SQL:
-  # -- Delete user's listings first (or use CASCADE)
-  # DELETE FROM homes WHERE owner_firebase_uid = $1;
-
-  # -- Delete user
-  # DELETE FROM users WHERE firebase_uid = $1;
-  
-  
-  #   ✅ Final API Summary:
-
-  # 1. CREATE User - POST /api/users
-  # - Field: owner_firebase_uid ✅
-  # - Fields: email, name, profile_image, isEmailVerified
-
-  # 2. UPDATE User - PATCH /api/users/{firebase_uid} ✅
-  # - Uses PATCH (partial update)
-  # - Fields: name, phoneCountryCode, phoneNumber, linkedinUrl, instagramId, facebookId, profile_image
-
-  # 3. DELETE User - DELETE /api/users/{firebase_uid} ✅
-  # - Deletes user and all related data
-
-  # All field names now match your database schema!
+# listing_data = HomeListingCreate.model_validate_json(json_string)  # Pydantic object
+# print(listing_data.title)
+# data_dict = listing_data.model_dump(exclude_none=True)     # Python dict
+# print (**data_dict)
 
 
+# Endpoint: POST /api/users
+
+# When: After successful Firebase signup (email/password, Google, or Facebook)
+
+# Request body:
+# {
+#   "firebase_uid": "qWMimoFaXQf5oTHEnNyD1J3L6sH2",
+#   "email": "user@example.com",
+#   "name": "John Doe",
+#   "profile_image": "https://...",
+#   "isEmailVerified": true
+# }
+
+# SQL:
+# INSERT INTO users (firebase_uid, email, name, profile_image, isEmailVerified, created_at, updated_at)
+# VALUES (...)
+# RETURNING *;
+
+# ---
+# 2. Update User (called when user edits profile)
+
+# Endpoint: PATCH /api/users/{firebase_uid} : use patch not put
+
+# When: User clicks "Save Changes" on profile page
+
+# Request body:
+# {
+#   "name": "John Doe",
+#   "phoneCountryCode": "+352",
+#   "phoneNumber": "123456",
+#   "linkedinUrl": "...",
+#   "instagramId": "...",
+#   "facebookId": "...",
+#   "profile_image": "..."
+# }
+
+# SQL:
+# UPDATE users
+# SET name = $1, phoneCountryCode = $2, phoneNumber = $3, ..., updated_at = NOW()
+# WHERE firebase_uid = $10
+# RETURNING *;
+
+# ---
+# 3. Delete User (called when user deletes account)
+
+# Endpoint: DELETE /api/users/{firebase_uid}
+
+# When: User confirms account deletion
+
+# SQL:
+# -- Delete user's listings first (or use CASCADE)
+# DELETE FROM homes WHERE owner_firebase_uid = $1;
+
+# -- Delete user
+# DELETE FROM users WHERE firebase_uid = $1;
+
+
+#   ✅ Final API Summary:
+
+# 1. CREATE User - POST /api/users
+# - Field: owner_firebase_uid ✅
+# - Fields: email, name, profile_image, isEmailVerified
+
+# 2. UPDATE User - PATCH /api/users/{firebase_uid} ✅
+# - Uses PATCH (partial update)
+# - Fields: name, phoneCountryCode, phoneNumber, linkedinUrl, instagramId, facebookId, profile_image
+
+# 3. DELETE User - DELETE /api/users/{firebase_uid} ✅
+# - Deletes user and all related data
+
+# All field names now match your database schema!
 
 
 #  cat > /tmp/firebase_auth_info.md << 'EOF'                                                                                                                                │
@@ -1294,68 +1311,66 @@ if __name__ == "__main__":
 # │                                                                                                                                                                            │
 # │ Do you want to proceed?                                                                                                                                                    │
 # │ ❯ 1. Yes                                                                                                                                                                   │
-# │   2. No, and tell Claude what to do differently (esc)    
+# │   2. No, and tell Claude what to do differently (esc)
 
 
+# GET ${PYTHON_BACKEND_URL}/api/homes?owner_firebase_uid=${user.uid}
+# Expected response:
+# [
+#   {
+#     "listing_id": "uuid-here",
+#     "title": "Beautiful Home in Paris",
+#     "city": "Paris",
+#     "country": "France",
+#     "max_guests": 4,
+#     "bedrooms": 2,
+#     "full_bathrooms": 1,
+#     "status": "draft",
+#     "hero_image_url": "https://storage.googleapis.com/...",
+#     ...all other home fields
+#   },
+#   ...
+# ]
 
+# For Clothes:
 
-  # GET ${PYTHON_BACKEND_URL}/api/homes?owner_firebase_uid=${user.uid}
-  # Expected response:
-  # [
-  #   {
-  #     "listing_id": "uuid-here",
-  #     "title": "Beautiful Home in Paris",
-  #     "city": "Paris",
-  #     "country": "France",
-  #     "max_guests": 4,
-  #     "bedrooms": 2,
-  #     "full_bathrooms": 1,
-  #     "status": "draft",
-  #     "hero_image_url": "https://storage.googleapis.com/...",
-  #     ...all other home fields
-  #   },
-  #   ...
-  # ]
+# GET ${PYTHON_BACKEND_URL}/api/clothes?owner_firebase_uid=${user.uid}
+# Expected response:
+# [
+#   {
+#     "listing_id": "uuid-here",
+#     "title": "Designer Jacket",
+#     "status": "published",
+#     "hero_image_url": "https://storage.googleapis.com/...",
+#     ...all other clothes fields
+#   },
+#   ...
+# ]
 
-  # For Clothes:
+# 2. Delete Listing (DELETE requests)
 
-  # GET ${PYTHON_BACKEND_URL}/api/clothes?owner_firebase_uid=${user.uid}
-  # Expected response:
-  # [
-  #   {
-  #     "listing_id": "uuid-here",
-  #     "title": "Designer Jacket",
-  #     "status": "published",
-  #     "hero_image_url": "https://storage.googleapis.com/...",
-  #     ...all other clothes fields
-  #   },
-  #   ...
-  # ]
+# Delete Home:
 
-  # 2. Delete Listing (DELETE requests)
+# DELETE ${PYTHON_BACKEND_URL}/api/homes/{listing_id}
 
-  # Delete Home:
+# Delete Clothes:
 
-  # DELETE ${PYTHON_BACKEND_URL}/api/homes/{listing_id}
+# DELETE ${PYTHON_BACKEND_URL}/api/clothes/{listing_id}
 
-  # Delete Clothes:
+# Expected response:
+# { "message": "Listing deleted successfully" }
 
-  # DELETE ${PYTHON_BACKEND_URL}/api/clothes/{listing_id}
+# 3. What frontend needs in responses:
 
-  # Expected response:
-  # { "message": "Listing deleted successfully" }
+# Required fields for display in profile page:
 
-  # 3. What frontend needs in responses:
+# - listing_id (UUID) - to identify the listing
+# - title (string) - listing title
+# - city (string) - location
+# - country (string) - location
+# - status (string) - "draft" or "published"
+# - hero_image_url (string) - URL to main image (join with images table where is_hero=true)
+# - For homes: max_guests, bedrooms, full_bathrooms
+# - For clothes: whatever display fields you want
 
-  # Required fields for display in profile page:
-
-  # - listing_id (UUID) - to identify the listing
-  # - title (string) - listing title
-  # - city (string) - location
-  # - country (string) - location
-  # - status (string) - "draft" or "published"
-  # - hero_image_url (string) - URL to main image (join with images table where is_hero=true)
-  # - For homes: max_guests, bedrooms, full_bathrooms
-  # - For clothes: whatever display fields you want
-
-  # Should I now update the frontend to fetch both categories?
+# Should I now update the frontend to fetch both categories?

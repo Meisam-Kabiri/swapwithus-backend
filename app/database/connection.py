@@ -11,7 +11,7 @@ CONNECTION METHOD - Pure asyncpg:
 - Production-grade connection pooling
 
 QUERY BUILDING - SQLAlchemy Core only:
-- SQL injection protection with parameterized queries  
+- SQL injection protection with parameterized queries
 - Complex query construction for swap matching logic
 - Schema definitions and migrations
 - NO ORM overhead, NO object mapping
@@ -26,18 +26,17 @@ ARCHITECTURE DECISION:
 Speed (asyncpg connections) + Security (SQLAlchemy Core queries) = Optimal for business growth
 """
 
-import os 
+import os
 import urllib.parse
 
-import asyncpg
-import asyncio
+import asyncpg  # type: ignore
 
 
 # Check if running on Cloud Run (K_SERVICE env var is set by Cloud Run)
-IS_CLOUD_RUN = os.getenv('K_SERVICE') is not None
+IS_CLOUD_RUN = os.getenv("K_SERVICE") is not None
 
 # Get database credentials from environment
-DB_USER = os.getenv("SWAPWITHUS_DB_USER") 
+DB_USER = os.getenv("SWAPWITHUS_DB_USER")
 DB_PASSWORD = os.getenv("SWAPWITHUS_DB_PASSWORD")
 DB_NAME = os.getenv("SWAPWITHUS_DATABASE_NAME")
 DB_PORT = "5432"
@@ -47,6 +46,7 @@ if not all([DB_USER, DB_PASSWORD, DB_NAME]):
     raise ValueError("Missing required SWAPWITHUS database environment variables")
 
 # URL encode password to handle special characters
+assert DB_PASSWORD is not None
 encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
 
 # Build connection string based on environment
@@ -55,7 +55,7 @@ if IS_CLOUD_RUN:
     # Format: postgresql://user:pass@/dbname?host=/cloudsql/project:region:instance
     CLOUD_SQL_CONNECTION = "project-8300:europe-north1:swapwithus-postgresql"
     ASYNCPG_URL = f"postgresql://{DB_USER}:{encoded_password}@/{DB_NAME}?host=/cloudsql/{CLOUD_SQL_CONNECTION}"
-    print(f"🌩️  Cloud Run mode: Connecting via Cloud SQL Proxy")
+    print("🌩️  Cloud Run mode: Connecting via Cloud SQL Proxy")
 else:
     # Local development: Use public IP
     DB_HOST = os.getenv("SWAPWITHUS_DB_HOST")
@@ -63,7 +63,6 @@ else:
         raise ValueError("Missing SWAPWITHUS_DB_HOST for local development")
     ASYNCPG_URL = f"postgresql://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
     print(f"💻 Local development mode: Connecting to {DB_HOST}")
-
 
 
 # Connection functions using pure asyncpg for maximum speed
@@ -75,8 +74,8 @@ async def get_db_connection():
 async def get_db_pool():
     """Get asyncpg connection pool for production - optimal for swap platform"""
     return await asyncpg.create_pool(
-        ASYNCPG_URL, 
-        min_size=0,      # Always-ready connections
-        max_size=20,     # Scale with concurrent swaps
-        command_timeout=60
+        ASYNCPG_URL,
+        min_size=0,  # Always-ready connections
+        max_size=20,  # Scale with concurrent swaps
+        command_timeout=60,
     )
