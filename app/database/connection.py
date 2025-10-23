@@ -31,7 +31,6 @@ import urllib.parse
 
 import asyncpg  # type: ignore
 
-
 # Check if running on Cloud Run (K_SERVICE env var is set by Cloud Run)
 IS_CLOUD_RUN = os.getenv("K_SERVICE") is not None
 
@@ -45,8 +44,9 @@ DB_PORT = "5432"
 if not all([DB_USER, DB_PASSWORD, DB_NAME]):
     raise ValueError("Missing required SWAPWITHUS database environment variables")
 
-# URL encode password to handle special characters
-assert DB_PASSWORD is not None
+# URL encode password to handle special characters (already validated above)
+if DB_PASSWORD is None:
+    raise ValueError("DB_PASSWORD cannot be None")
 encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
 
 # Build connection string based on environment

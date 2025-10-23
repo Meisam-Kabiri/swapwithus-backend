@@ -37,7 +37,24 @@ exclude = ["tests*", "*.egg-info"]
 # Include non-Python files if needed
 "*" = ["*.json", "*.yaml", "*.yml"]
 
-# Optional: Configure tools you might use
+# Optional: Configure tools 
+
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = "test_*.py"
+python_classes = "Test*"
+python_functions = "test_*"
+
+
+[tool.ruff]
+line-length = 88
+target-version = "py312"
+
+[tool.ruff.lint]
+extend-select = ["I"]          # Import sorting
+ignore = ["E501"]              # Ignore line-length warning if needed
+
 [tool.black]
 line-length = 100
 target-version = ['py312']
@@ -53,11 +70,6 @@ exclude = '''
 )/
 '''
 
-[tool.pytest.ini_options]
-testpaths = ["tests"]
-python_files = "test_*.py"
-python_classes = "Test*"
-python_functions = "test_*"
 
 [tool.mypy]
 python_version = "3.12"

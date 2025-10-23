@@ -1,7 +1,9 @@
-import firebase_admin  # type: ignore
-from firebase_admin import credentials, auth as firebase_auth
-from fastapi import Request, HTTPException
 import os
+
+import firebase_admin  # type: ignore
+from fastapi import HTTPException, Request
+from firebase_admin import auth as firebase_auth
+from firebase_admin import credentials
 
 # Initialize Firebase Admin (only once)
 if not firebase_admin._apps:

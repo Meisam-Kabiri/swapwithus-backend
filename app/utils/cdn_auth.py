@@ -1,10 +1,10 @@
-import hmac
-import hashlib
 import base64
-import time
+import hashlib
+import hmac
 import os
-import requests
+import time
 
+import requests
 
 signing_key = os.getenv("GOOGLE_CLOUD_CDN_SIGNING_KEY")  # Base64-encoded key
 key_name = os.getenv("GOOGLE_CLOUD_CDN_KEY_NAME")  # Key name in Cloud CDN

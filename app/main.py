@@ -1,35 +1,31 @@
-from fastapi import FastAPI, HTTPException, Request, UploadFile, File, Form
-from fastapi.responses import JSONResponse
-from typing import List, Optional
+import logging
 import uuid
-import asyncpg
-
-
-from fastapi.middleware.cors import CORSMiddleware
-from database.operation import DbManager
-from database.connection import get_db_pool
-
-from app.services.gcp_image_service import upload_photo_to_storage, delete_image_from_storage
-from utils.cdn_auth import make_urlprefix_token, append_token_to_url
 from contextlib import asynccontextmanager
+from typing import List, Optional
 
-from middleware.rate_limit import limiter, custom_rate_limit_handler
-from slowapi.errors import RateLimitExceeded
-
-from middleware.auth import verify_firebase_token, verify_user_owns_resource
-
+import asyncpg
 from async_lru import alru_cache
+from database.connection import get_db_pool
+from database.operation import DbManager
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from middleware.auth import verify_firebase_token, verify_user_owns_resource
+from middleware.rate_limit import custom_rate_limit_handler, limiter
+from slowapi.errors import RateLimitExceeded
+from utils.cdn_auth import append_token_to_url, make_urlprefix_token
 
 from app.models.pydantic_models import (
+    FirebaseUserIfNotExists,
+    HomeListingCreate,
+    ImageMetadataCollection,
     UserCreate,
     UserUpdate,
-    FirebaseUserIfNotExists,
-    ImageMetadataCollection,
-    HomeListingCreate,
 )
-
-
-import logging
+from app.services.gcp_image_service import (
+    delete_image_from_storage,
+    upload_photo_to_storage,
+)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -38,8 +34,9 @@ _db_pool: Optional[asyncpg.Pool] = None
 
 
 def get_pool() -> asyncpg.Pool:
-    """Get database pool with type assertion"""
-    assert _db_pool is not None, "Database pool not initialized"
+    """Get database pool with runtime check"""
+    if _db_pool is None:
+        raise RuntimeError("Database pool not initialized")
     return _db_pool
 
 

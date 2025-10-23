@@ -1,15 +1,13 @@
+import io
+import logging
 import os
 import uuid
-from google.cloud import storage  # type: ignore
-from google.cloud.exceptions import GoogleCloudError
-import logging
-from fastapi import UploadFile
 from datetime import timedelta
 
-
+from fastapi import UploadFile
+from google.cloud import storage  # type: ignore
+from google.cloud.exceptions import GoogleCloudError
 from PIL import Image
-import io
-
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -171,8 +169,8 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
         # Check if running on Cloud Run (no private key available)
         if os.getenv("K_SERVICE"):
             # Use IAM signBlob API - keyless signing on Cloud Run
-            from google.auth.transport import requests as google_requests
             from google.auth import compute_engine
+            from google.auth.transport import requests as google_requests
 
             service_account_email = (
                 "swapwithus-storage-service@project-8300.iam.gserviceaccount.com"

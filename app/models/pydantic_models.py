@@ -1,7 +1,8 @@
-from pydantic import BaseModel, Field, EmailStr, ConfigDict
-from typing import List, Optional, Dict, Any, Annotated, Literal
 from datetime import date
+from typing import Annotated, Any, Dict, List, Literal, Optional
 from uuid import UUID
+
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
 def snake_to_camel(snake_str: str) -> str:
