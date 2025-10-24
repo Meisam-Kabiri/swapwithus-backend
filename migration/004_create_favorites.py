@@ -1,5 +1,6 @@
-from database.connection import get_db_connection
 import asyncio
+
+from database.connection import get_db_connection
 
 
 def create_favorite_table_sql():

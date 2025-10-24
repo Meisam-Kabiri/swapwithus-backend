@@ -2,3 +2,4 @@ ruff
 black
 mypy
 types-requests
+isort

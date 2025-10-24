@@ -2,8 +2,9 @@
 # import os
 # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database.connection import get_db_connection
 import asyncio
+
+from database.connection import get_db_connection
 
 
 # for image we are using a separate table

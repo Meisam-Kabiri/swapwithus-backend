@@ -10,10 +10,28 @@ def snake_to_camel(snake_str: str) -> str:
     return first + "".join(x.title() for x in rest)
 
 
+class CarDetails(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=snake_to_camel,
+        populate_by_name=True
+    )
+
+    make_model_year: Optional[str] = None
+    transmission: Optional[str] = None
+    fuel_type: Optional[str] = None
+    connector_type: Optional[str] = None
+    seats: Optional[Annotated[int, Field(ge=1, le=20)]] = None
+    insurance_status: Optional[str] = None
+    min_driver_age: Optional[Annotated[int, Field(ge=16, le=99)]] = None
+    mileage_limit: Optional[Annotated[int, Field(ge=0)]] = None
+    pickup_note: Optional[str] = None
+
+
 class HomeListingCreate(BaseModel):
     model_config = ConfigDict(
         alias_generator=snake_to_camel,
         populate_by_name=True,
+        extra="ignore"
     )
 
     # Primary key (will be generated as UUID in backend)
@@ -42,10 +60,7 @@ class HomeListingCreate(BaseModel):
     # Step 2: Capacity & Layout (Optional except max_guests)
     max_guests: Annotated[int, Field(gt=0, le=50)]
     bedrooms: Optional[Annotated[int, Field(ge=0, le=50)]] = None
-
-    size_input: Optional[str] = None
-    size_unit: Optional[str] = None
-    size_m2: Optional[int] = None
+    size_m2: Optional[Annotated[float, Field(gt=0, le=100000)]] = None
     surroundings_type: Optional[Annotated[str, Field(max_length=30)]] = None
 
     # Step 3: Location (Required: country, city; Optional: rest)
@@ -64,10 +79,11 @@ class HomeListingCreate(BaseModel):
     # Step 6: Transport & Car Swap
     open_to_car_swap: bool = False
     require_car_swap_match: bool = False
-    car_details: Optional[Dict[str, Any]] = None
+    car_details: Optional[CarDetails] = None
+
 
     # Step 7:  Available Amenities
-    amenities: Optional[Dict[str, List[str]]] = Field(default_factory=dict)
+    amenities: Optional[Dict[str, Any]] = Field(default_factory=dict)
     accessibility_features: Optional[List[str]] = Field(default_factory=list)
     parking_type: Optional[Literal["none", "street", "driveway", "garage", "covered"]] = None
 
@@ -85,6 +101,11 @@ class HomeListingCreate(BaseModel):
 
 
 class ImageMetadataItem(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=snake_to_camel,
+        populate_by_name=True,
+    )
+    
     caption: Optional[Annotated[str, Field(max_length=200)]] = None
     tag: Optional[Annotated[str, Field(max_length=100)]] = None
     is_hero: Optional[bool] = False
@@ -96,6 +117,10 @@ class ImageMetadataItem(BaseModel):
 
 
 class ImageMetadataCollection(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=snake_to_camel,
+        populate_by_name=True,
+    )
     images_metadata: Optional[List[ImageMetadataItem]] = Field(default_factory=list)
     deleted_public_urls: Optional[List[Annotated[str, Field(max_length=2048)]]] = Field(
         default_factory=list
@@ -107,6 +132,10 @@ class FullHomeListing(HomeListingCreate):
 
 
 class UserCreate(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=snake_to_camel,
+        populate_by_name=True,
+      )
     owner_firebase_uid: str
     email: Annotated[EmailStr, Field(max_length=255)]
     name: Annotated[str, Field(max_length=100, min_length=2)]
@@ -115,6 +144,10 @@ class UserCreate(BaseModel):
 
 
 class UserUpdate(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=snake_to_camel,
+        populate_by_name=True,
+    )
     name: Optional[Annotated[str, Field(max_length=100, min_length=2)]] = None
     phone_country_code: Optional[Annotated[str, Field(max_length=5, min_length=2)]] = None
     phone_number: Optional[Annotated[str, Field(pattern=r"^\d{4,15}$")]] = None
@@ -125,10 +158,18 @@ class UserUpdate(BaseModel):
 
 
 class FirebaseUserIfNotExists(BaseModel):
+    model_config = ConfigDict(
+        alias_generator=snake_to_camel,
+        populate_by_name=True,
+    )
     owner_firebase_uid: str
     email: Optional[Annotated[EmailStr, Field(max_length=255)]] = None
     name: Optional[Annotated[str, Field(max_length=100, min_length=2)]] = None
     profile_image: Optional[str] = None
+
+
+
+
 
 
 #  You need validators for:

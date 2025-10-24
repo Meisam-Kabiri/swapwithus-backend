@@ -2,8 +2,9 @@
 # import os
 # sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from database.connection import get_db_connection
 import asyncio
+
+from database.connection import get_db_connection
 
 
 # for image we are using a separate table
@@ -30,9 +31,8 @@ def create_home_table_sql():
       -- Step 2: Capacity & Layout
       max_guests INTEGER NULL,
       bedrooms INTEGER NULL,
-      size_input VARCHAR(20) NULL,
-      size_unit VARCHAR(10) NULL,
-      size_m2 INTEGER NULL,
+ 
+      size_m2 NUMERIC(10, 2) NULL,
       surroundings_type VARCHAR(30) NULL,
 
       -- Step 3: Location
