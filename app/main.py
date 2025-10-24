@@ -5,15 +5,15 @@ from typing import List, Optional
 
 import asyncpg
 from async_lru import alru_cache
-from database.connection import get_db_pool
-from database.operation import DbManager
+from app.database.connection import get_db_pool
+from app.database.operation import DbManager
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-from middleware.auth import verify_firebase_token, verify_user_owns_resource
-from middleware.rate_limit import custom_rate_limit_handler, limiter
+from app.middleware.auth import verify_firebase_token, verify_user_owns_resource
+from app.middleware.rate_limit import custom_rate_limit_handler, limiter
 from slowapi.errors import RateLimitExceeded
-from utils.cdn_auth import append_token_to_url, make_urlprefix_token
+from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
 
 from app.models.pydantic_models import (
     FirebaseUserIfNotExists,
