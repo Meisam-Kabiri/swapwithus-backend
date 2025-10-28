@@ -1,4 +1,5 @@
 import os
+from typing import Union
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
@@ -42,18 +43,19 @@ limiter = Limiter(
 
 
 # Custom rate limit exceeded handler
-def custom_rate_limit_handler(request: Request, exc: RateLimitExceeded) -> Response:
+def custom_rate_limit_handler(request: Request, exc: Exception) -> Response:
     # Try to parse seconds from detail string
     retry_seconds = 60  # Default to 60 seconds
 
     # Extract time period from detail (e.g., "1 minute", "1 hour")
-    if "minute" in str(exc.detail):
+    detail_str = str(getattr(exc, "detail", ""))
+    if "minute" in detail_str:
         retry_seconds = 60
-    elif "hour" in str(exc.detail):
+    elif "hour" in detail_str:
         retry_seconds = 3600
-    elif "day" in str(exc.detail):
+    elif "day" in detail_str:
         retry_seconds = 86400
-    elif "second" in str(exc.detail):
+    elif "second" in detail_str:
         retry_seconds = 1
 
     return JSONResponse(

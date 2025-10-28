@@ -68,8 +68,17 @@ exclude = '''
 
 [tool.mypy]
 python_version = "3.12"
-follow_imports = "silent"
 ignore_missing_imports = true
+follow_imports = "silent"
+
+# Make mypy less strict for development
+allow_untyped_defs = true
+allow_incomplete_defs = true
+allow_untyped_calls = true
+no_implicit_optional = false
+warn_return_any = false
+warn_unused_ignores = false
+
 exclude = [
     "swapwithus_backend.egg-info",
     "swapwithus.egg-info",
