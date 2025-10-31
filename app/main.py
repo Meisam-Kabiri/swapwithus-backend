@@ -15,6 +15,11 @@ from app.middleware.rate_limit import custom_rate_limit_handler, limiter
 from slowapi.errors import RateLimitExceeded
 from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
 
+#TODO: Use background tasks for image deletion/upload
+#TODO: Use Dependency Injection for DB pool
+#TODO: modify __init__.py for packages to make them more effective
+#TODO: Add testing for all endpoints
+
 from app.models.pydantic_models import (
     FirebaseUserIfNotExists,
     HomeListingCreate,
@@ -194,17 +199,14 @@ async def visit_home(request: Request):
     return {"message": "Welcome to SwapWithUs API!"}
 
 
-@app.delete("/api/favorites/remove")
+@app.delete("/api/favorites/{listing_id}")
 @limiter.limit("50/minute")
-async def remove_favorite(request: Request):
-    print("Removing favorite for listing ID:")
+async def remove_favorite(request: Request, listing_id: str):
+    print("Removing favorite for listing ID:", listing_id)
     user_id = await verify_firebase_token(request)
     print("User ID from token:", user_id)
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
-    body = await request.json()
-    listing_id = body.get("listing_id")
-    print("Listing ID from query params:", listing_id)
     if not listing_id:
         raise HTTPException(status_code=400, detail="listing_id is required")
 
@@ -221,7 +223,7 @@ async def remove_favorite(request: Request):
             raise HTTPException(status_code=500, detail="Failed to remove favorite")
 
 
-@app.post("/api/favorites/add")
+@app.post("/api/favorites")
 @limiter.limit("50/minute")
 async def add_favorite(request: Request):
     print("Adding favorite for listing ID:")
@@ -236,7 +238,7 @@ async def add_favorite(request: Request):
         raise HTTPException(status_code=400, detail="listing_id is required")
 
     add_favorite_query = """
-  INSERT INTO favorites (owner_firebase_uid, listing_id, created_at) 
+  INSERT INTO favorites (owner_firebase_uid, listing_id, created_at)
   Values ($1, $2, NOW())
   ON CONFLICT (owner_firebase_uid, listing_id) DO NOTHING
   """
@@ -323,7 +325,7 @@ async def get_user_data(uid: str, request: Request):
         return dict(user_row)
 
 
-@app.get("/api/homes/my-listings")
+@app.get("/api/homes/me")
 @limiter.limit("60/minute")
 async def get_my_home_listings(request: Request):
     """
@@ -948,7 +950,7 @@ async def update_user(request: Request, uid: str, user: UserUpdate):
 
 
 # from fastapi import Response
-@app.get("/browse")
+@app.get("/api/browse")
 @limiter.limit("30/minute")
 @alru_cache(maxsize=5, ttl=9 * 3600)
 async def browse_homes(request: Request):
