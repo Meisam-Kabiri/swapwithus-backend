@@ -5,25 +5,10 @@ SPEED + SECURITY focused architecture for swap platform:
 
 CONNECTION METHOD - Pure asyncpg:
 - asyncpg connection pool for ALL database operations
-- 30-50% faster than SQLAlchemy async engine
+- faster than SQLAlchemy async engine
 - Critical for high-frequency swap transactions
 - Direct PostgreSQL protocol, minimal overhead
 - Production-grade connection pooling
-
-QUERY BUILDING - SQLAlchemy Core only:
-- SQL injection protection with parameterized queries
-- Complex query construction for swap matching logic
-- Schema definitions and migrations
-- NO ORM overhead, NO object mapping
-- Used ONLY for building safe SQL strings
-
-WHY NOT SQLAlchemy for connections:
-- Too slow for swap platform transaction volume
-- Extra abstraction layer reduces performance
-- asyncpg gives direct control over PostgreSQL features
-
-ARCHITECTURE DECISION:
-Speed (asyncpg connections) + Security (SQLAlchemy Core queries) = Optimal for business growth
 """
 
 import os
@@ -76,6 +61,12 @@ async def get_db_pool():
     return await asyncpg.create_pool(
         ASYNCPG_URL,
         min_size=0,  # Always-ready connections
-        max_size=20,  # Scale with concurrent swaps
+        max_size=50,  # Scale with concurrent swaps
         command_timeout=60,
     )
+
+if __name__ == "__main__":
+    print("Database connection module for SwapWithUs")
+    
+    import asyncio
+    asyncio.run(get_db_pool())

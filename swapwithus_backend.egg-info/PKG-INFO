@@ -6,9 +6,11 @@ Author: Meisam Kabiri
 Requires-Python: >=3.12
 Description-Content-Type: text/markdown
 Provides-Extra: dev
-Requires-Dist: pytest>=7.0; extra == "dev"
 Requires-Dist: black>=23.0; extra == "dev"
 Requires-Dist: mypy>=1.0; extra == "dev"
+Requires-Dist: ruff>=0.0; extra == "dev"
+Requires-Dist: types-requests>=2.28.11; extra == "dev"
+Requires-Dist: isort>=5.10; extra == "dev"
 
 # SwapWithUs Backend
 

@@ -1,11 +1,9 @@
 import os
-from typing import Union
 
 from fastapi import Request, Response
 from fastapi.responses import JSONResponse
 from firebase_admin import auth as firebase_auth  # type: ignore
 from slowapi import Limiter
-from slowapi.errors import RateLimitExceeded
 from slowapi.util import get_remote_address
 
 redis_url = os.getenv("REDIS_URL", "redis://localhost:6379")

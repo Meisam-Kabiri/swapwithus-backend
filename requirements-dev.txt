@@ -2,4 +2,6 @@ ruff
 black
 mypy
 types-requests
+pytest
+pytest-asyncio
 isort

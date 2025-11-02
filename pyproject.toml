@@ -72,10 +72,10 @@ ignore_missing_imports = true
 follow_imports = "silent"
 
 # Make mypy less strict for development
-allow_untyped_defs = true
-allow_incomplete_defs = true
-allow_untyped_calls = true
-no_implicit_optional = false
+disallow_untyped_defs = false
+disallow_incomplete_defs = false
+disallow_untyped_calls = false
+implicit_optional = true
 warn_return_any = false
 warn_unused_ignores = false
 
@@ -85,3 +85,10 @@ exclude = [
     "build",
     "dist",
 ]
+
+[tool.pytest.ini_options]
+python_files = "test_*.py"
+python_functions = "test_*"
+python_classes = "Test*"
+testpaths = ["test"]
+addopts = "-v"

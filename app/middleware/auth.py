@@ -17,7 +17,7 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 
-async def verify_firebase_token(request: Request) -> str:
+def verify_firebase_token(request: Request) -> str:
     """
     Verify Firebase token and return the user UID
     Raises HTTPException if token is invalid or missing
@@ -36,11 +36,11 @@ async def verify_firebase_token(request: Request) -> str:
         raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
 
 
-async def verify_user_owns_resource(request: Request, claimed_uid: str):
+def verify_user_owns_resource(request: Request, claimed_uid: str):
     """
     Verify that the authenticated user matches the claimed UID
     """
-    actual_uid = await verify_firebase_token(request)
+    actual_uid = verify_firebase_token(request)
 
     if actual_uid != claimed_uid:
         raise HTTPException(

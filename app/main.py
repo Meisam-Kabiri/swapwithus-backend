@@ -5,21 +5,20 @@ from typing import List, Optional
 
 import asyncpg
 from async_lru import alru_cache
-from app.database.connection import get_db_pool
-from app.database.operation import DbManager
 from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
+from slowapi.errors import RateLimitExceeded
+
+from app.database.connection import get_db_pool
+from app.database.operation import DbManager
 from app.middleware.auth import verify_firebase_token, verify_user_owns_resource
 from app.middleware.rate_limit import custom_rate_limit_handler, limiter
-from slowapi.errors import RateLimitExceeded
-from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
 
 #TODO: Use background tasks for image deletion/upload
 #TODO: Use Dependency Injection for DB pool
 #TODO: modify __init__.py for packages to make them more effective
 #TODO: Add testing for all endpoints
-
 from app.models.pydantic_models import (
     FirebaseUserIfNotExists,
     HomeListingCreate,
@@ -31,6 +30,7 @@ from app.services.gcp_image_service import (
     delete_image_from_storage,
     upload_photo_to_storage,
 )
+from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -203,7 +203,7 @@ async def visit_home(request: Request):
 @limiter.limit("50/minute")
 async def remove_favorite(request: Request, listing_id: str):
     print("Removing favorite for listing ID:", listing_id)
-    user_id = await verify_firebase_token(request)
+    user_id = verify_firebase_token(request)
     print("User ID from token:", user_id)
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -227,7 +227,7 @@ async def remove_favorite(request: Request, listing_id: str):
 @limiter.limit("50/minute")
 async def add_favorite(request: Request):
     print("Adding favorite for listing ID:")
-    user_id = await verify_firebase_token(request)
+    user_id = verify_firebase_token(request)
     print("User ID from token:", user_id)
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
@@ -254,7 +254,7 @@ async def add_favorite(request: Request):
 @app.get("/api/favorites")
 @limiter.limit("50/minute")
 async def get_favorites(request: Request):
-    user_id = await verify_firebase_token(request)
+    user_id = verify_firebase_token(request)
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
 
@@ -291,7 +291,7 @@ async def get_my_user_data(request: Request):
     UID is extracted from Firebase token, not from URL
     """
     # Extract UID from token
-    uid = await verify_firebase_token(request)
+    uid = verify_firebase_token(request)
 
     query = """
         SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
@@ -333,7 +333,7 @@ async def get_my_home_listings(request: Request):
     UID is extracted from Firebase token, not from query params
     """
     # Extract UID from token
-    uid = await verify_firebase_token(request)
+    uid = verify_firebase_token(request)
 
     query_home = """
     SELECT * FROM homes WHERE owner_firebase_uid = $1
@@ -386,7 +386,7 @@ async def get_my_home_listings(request: Request):
 async def get_home_listings(request: Request, owner_firebase_uid: str):
 
     # Verify user can only delete their own account
-    await verify_user_owns_resource(request, owner_firebase_uid)
+    verify_user_owns_resource(request, owner_firebase_uid)
 
     query_home = """
       SELECT * FROM homes WHERE owner_firebase_uid = $1
@@ -494,7 +494,7 @@ async def get_home_listings(request: Request, owner_firebase_uid: str):
 @limiter.limit("5/hour")
 async def delete_home_listing(request: Request, listing_id: str):
 
-    user_uid = await verify_firebase_token(request)
+    user_uid = verify_firebase_token(request)
     # Check if listing belongs to this user
     async with get_pool().acquire() as conn:
         listing_owner = await conn.fetchval(
@@ -543,16 +543,16 @@ async def create_home_listing(
     request: Request, listing: str = Form(...), images: List[UploadFile] = File(...)
 ):
     # Verify user is authenticated and extract UID
-    user_uid = await verify_firebase_token(request)
+    user_uid = verify_firebase_token(request)
 
     uploaded_urls = []
     try:
         # Simulate saving to database and getting an ID
         listing_data = HomeListingCreate.model_validate_json(listing)
-        listing_data_dict = listing_data.model_dump(exclude_none=True)
+        listing_data_dict = listing_data.model_dump(exclude_none=True, exclude_unset=True)
 
         user_data = FirebaseUserIfNotExists.model_validate_json(listing)
-        user_data_dict = user_data.model_dump(exclude_none=True)
+        user_data_dict = user_data.model_dump(exclude_none=True, exclude_unset=True)
 
         # Verify the token UID matches the listing owner
         if user_data_dict.get("owner_firebase_uid") != user_uid:
@@ -667,7 +667,7 @@ async def create_home_listing(
 @limiter.limit("5/hour")
 async def create_user(request: Request, user: UserCreate):
     # Verify Firebase token
-    user_uid = await verify_firebase_token(request)
+    user_uid = verify_firebase_token(request)
 
     # Verify the token UID matches the user being created
     if user.owner_firebase_uid != user_uid:
@@ -705,7 +705,7 @@ async def update_home_listing(
 ):
 
     # Verify user is authenticated
-    user_uid = await verify_firebase_token(request)
+    user_uid = verify_firebase_token(request)
 
     # Check if listing belongs to this user
     async with get_pool().acquire() as conn:
@@ -858,7 +858,7 @@ async def update_home_listing(
 @limiter.limit("3/hour")
 async def delete_user(request: Request, uid: str):
     # Verify user can only delete their own account
-    await verify_user_owns_resource(request, uid)
+    verify_user_owns_resource(request, uid)
 
     try:
         async with get_pool().acquire() as conn:
@@ -908,7 +908,7 @@ async def delete_user(request: Request, uid: str):
 async def update_user(request: Request, uid: str, user: UserUpdate):
 
     # Verify user can only update their own account
-    await verify_user_owns_resource(request, uid)
+    verify_user_owns_resource(request, uid)
     query = """   UPDATE users
                 SET
                 name = $1,
