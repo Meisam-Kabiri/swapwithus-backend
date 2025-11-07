@@ -111,7 +111,7 @@ async def upload_photo_to_storage(
 
         # Initialize Google Cloud Storage client
         client = storage.Client()
-        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
+        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
         bucket = client.bucket(bucket_name)
 
         # Generate secure filename
@@ -161,7 +161,7 @@ async def upload_photo_to_storage(
 def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
     """Convert public URL to signed URL using IAM-based signing (works on Cloud Run)"""
     try:
-        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
+        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
 
         # Extract blob_name from public URL
         blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
@@ -173,7 +173,7 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
             from google.auth.transport import requests as google_requests
 
             service_account_email = (
-                "swapwithus-storage-service@project-8300.iam.gserviceaccount.com"
+                "swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com"
             )
 
             # Get access token from metadata server
@@ -216,7 +216,7 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
 async def delete_image_from_storage(public_url: str) -> bool:
     """Delete image from Google Cloud Storage using public URL"""
     try:
-        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-images-storage")
+        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
 
         # Extract blob_name from public URL
         # Format: https://storage.googleapis.com/bucket-name/path/to/file.jpg
@@ -291,3 +291,30 @@ async def delete_image_from_storage(public_url: str) -> bool:
 # Enable Signed Cookies on your CDN Backend Service: In the Google Cloud Console, go to your Load Balancer / CDN settings and enable Signed Cookies for the backend service or backend bucket that points to your GCS bucket.
 
 # Create a Signing Key: Create a key for your backend service. This is what your backend will use to sign the cookies.
+
+
+if __name__ == "__main__":
+    import sys
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+    from app.utils.cdn_auth import make_urlprefix_token
+
+    print("=" * 60)
+    print("CDN URL SIGNING TEST")
+    print("=" * 60)
+
+    KEY_B64 = "TMLeUr9-SURjle9ky_jHnQ=="
+    KEY_NAME = "cdnkey"
+    blob_name = "2f884215-7155-49b1-8db1-14e0117cdbd1_20251014_60e31a1d-d04.png"
+    cdn_base = "https://cdn.swapwithus.com/home/"
+
+    print(f"Key Name: {KEY_NAME}")
+    print(f"Key Value: {KEY_B64}")
+    print(f"Testing image: {blob_name}\n")
+
+    token = make_urlprefix_token(cdn_base, KEY_NAME, KEY_B64, expires_in=3600)
+    signed_url = f"{cdn_base}{blob_name}?{token}"
+
+    print("Signed URL:")
+    print(signed_url)
+    print("\nTest with curl:")
+    print(f'curl -I "{signed_url}"')

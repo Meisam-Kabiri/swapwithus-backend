@@ -132,7 +132,7 @@ def make_urlprefix_token(
 def append_token_to_url(cdn_url: str, url_prefix_token: str) -> str:
     """Append the url_prefix_token to the cdn_url."""
     # extract blob name
-    blob_name = cdn_url.split("storage.googleapis.com/swapwithus-images-storage/home/")[1]
+    blob_name = cdn_url.split("storage.googleapis.com/swapwithus-listing-images/home/")[1]
 
     base = "https://cdn.swapwithus.com/home/"
     return f"{base}{blob_name}?{url_prefix_token}"

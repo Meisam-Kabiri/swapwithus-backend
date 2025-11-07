@@ -38,7 +38,7 @@ encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
 if IS_CLOUD_RUN:
     # Cloud Run: Use Unix socket for Cloud SQL Proxy
     # Format: postgresql://user:pass@/dbname?host=/cloudsql/project:region:instance
-    CLOUD_SQL_CONNECTION = "project-8300:europe-north1:swapwithus-postgresql"
+    CLOUD_SQL_CONNECTION = "swapwithus-project:europe-north1:swapwithus-db"
     ASYNCPG_URL = f"postgresql://{DB_USER}:{encoded_password}@/{DB_NAME}?host=/cloudsql/{CLOUD_SQL_CONNECTION}"
     print("🌩️  Cloud Run mode: Connecting via Cloud SQL Proxy")
 else:

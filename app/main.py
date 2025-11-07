@@ -343,7 +343,7 @@ async def get_my_home_listings(request: Request):
     SELECT
         public_url,
         'https://cdn.swapwithus.com/home/' ||
-            split_part(public_url, 'storage.googleapis.com/swapwithus-images-storage/home/', 2) ||
+            split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
             '?' || $3 AS signed_url,
         tag,
         caption,
@@ -403,7 +403,7 @@ async def get_home_listings(request: Request, owner_firebase_uid: str):
       SELECT 
           public_url,
           'https://cdn.swapwithus.com/home/' ||
-              split_part(public_url, 'storage.googleapis.com/swapwithus-images-storage/home/', 2) ||
+              split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
               '?' || $3 AS signed_url,
           tag,
           caption,
@@ -988,7 +988,7 @@ async def browse_homes(request: Request):
                 'public_url', i.public_url,
                 'signed_url', 
                     'https://cdn.swapwithus.com/home/' ||
-                    split_part(i.public_url, 'storage.googleapis.com/swapwithus-images-storage/home/', 2) ||
+                    split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
                     '?' || $1,
                 'tag', i.tag,
                 'caption', i.caption,

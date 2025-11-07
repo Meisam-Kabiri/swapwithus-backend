@@ -8,9 +8,9 @@
 
 ## Project Setup
 
-Your project ID: `project-8300`
-Storage bucket: `swapwithus-images-storage`
-Service account: `swapwithus-storage-service@project-8300.iam.gserviceaccount.com`
+Your project ID: `swapwithus-project`
+Storage bucket: `swapwithus-listing-images`
+Service account: `swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com`
 
 ---
 
@@ -21,16 +21,19 @@ Service account: `swapwithus-storage-service@project-8300.iam.gserviceaccount.co
 **Never commit this file to git!** It contains secrets.
 
 ```yaml
-SWAPWITHUS_PROJECT_ID: "project-8300"
+SWAPWITHUS_PROJECT_ID: "swapwithus-project"
 SWAPWITHUS_SQL_REGION: "europe-north1"
-SWAPWITHUS_SQL_INSTANCE: "swapwithus-postgresql"
+SWAPWITHUS_SQL_INSTANCE: "swapwithus-db"
 SWAPWITHUS_DATABASE_NAME: "swapwithusDB"
 SWAPWITHUS_DB_USER: "postgres"
-SWAPWITHUS_DB_PASSWORD: "your_password_here"
-SWAPWITHUS_DB_HOST: "34.88.68.46"
-SWAPWITHUS_DATABASE_URL: "postgresql+asyncpg://postgres:password@34.88.68.46:5432/swapwithusDB"
-SWAPWITHUS_MAPS_API_KEY: "your_api_key_here"
-GOOGLE_CLOUD_STORAGE_BUCKET: "swapwithus-images-storage"
+SWAPWITHUS_DB_PASSWORD: "your_secure_password_here"
+SWAPWITHUS_DB_HOST: "YOUR_DB_IP_ADDRESS"
+SWAPWITHUS_DATABASE_URL: "postgresql+asyncpg://postgres:your_password@YOUR_DB_IP:5432/swapwithusDB"
+SWAPWITHUS_MAPS_API_KEY: "your_maps_api_key_here"
+GOOGLE_CLOUD_STORAGE_BUCKET: "swapwithus-listing-images"
+GOOGLE_CLOUD_CDN_SIGNING_KEY: "your_cdn_signing_key_here"
+GOOGLE_CLOUD_CDN_KEY_NAME: "cdnkey"
+REDIS_URL: "redis://default:your_redis_password@your-redis-host:port"
 ```
 
 ### 2. `.gitignore` entries
@@ -76,7 +79,7 @@ cd /home/meisam/Desktop/swapwithus_backend
 ### 2. Set Google Cloud Project
 
 ```bash
-gcloud config set project project-8300
+gcloud config set project swapwithus-project
 ```
 
 ### 3. Enable Required APIs
@@ -88,7 +91,7 @@ gcloud services enable run.googleapis.com
 gcloud services enable artifactregistry.googleapis.com
 ```
 
-Or enable in console: https://console.cloud.google.com/apis/library?project=project-8300
+Or enable in console: https://console.cloud.google.com/apis/library?project=swapwithus-project
 
 ### 4. Build Container Image
 
@@ -96,11 +99,11 @@ This step builds your Docker image and uploads it to Google Container Registry.
 **Time: 2-5 minutes**
 
 ```bash
-gcloud builds submit --tag gcr.io/project-8300/swapwithus-backend
+gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend
 ```
 
 **Note:** You may see "ERROR" about log streaming permissions - ignore it. The build is still running. Check status at:
-https://console.cloud.google.com/cloud-build/builds?project=project-8300
+https://console.cloud.google.com/cloud-build/builds?project=swapwithus-project
 
 ### 5. Deploy to Cloud Run
 
@@ -108,15 +111,16 @@ https://console.cloud.google.com/cloud-build/builds?project=project-8300
 
 ```bash
 gcloud run deploy swapwithus-backend \
-  --image gcr.io/project-8300/swapwithus-backend \
+  --image gcr.io/swapwithus-project/swapwithus-backend \
   --platform managed \
   --region europe-west1 \
   --allow-unauthenticated \
   --max-instances=10 \
   --memory=512Mi \
   --timeout=300 \
+  --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db \
   --env-vars-file=env.yaml \
-  --service-account=swapwithus-storage-service@project-8300.iam.gserviceaccount.com
+  --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com
 ```
 
 **Configuration explained:**
@@ -168,13 +172,14 @@ When you make changes to your backend code:
 cd /home/meisam/Desktop/swapwithus_backend
 
 # Build new image
-gcloud builds submit --tag gcr.io/project-8300/swapwithus-backend
+gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend
 
 # Deploy (env vars already set, no need to repeat)
 gcloud run deploy swapwithus-backend \
-  --image gcr.io/project-8300/swapwithus-backend \
+  --image gcr.io/swapwithus-project/swapwithus-backend \
   --platform managed \
-  --region europe-west1
+  --region europe-west1 \
+  --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db
 ```
 
 **Time: 2-5 minutes**
@@ -198,7 +203,7 @@ gcloud run services update swapwithus-backend \
 
 ### View Logs (Console - Easiest)
 
-https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=project-8300
+https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
 
 ### View Logs (Command Line)
 
@@ -236,7 +241,7 @@ curl "https://YOUR_CLOUD_RUN_URL/api/homes?owner_firebase_uid=test"
 
 ### Issue: "Internal Server Error" on API calls
 
-**Check logs first:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=project-8300
+**Check logs first:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
 
 **Common causes:**
 
@@ -247,7 +252,7 @@ curl "https://YOUR_CLOUD_RUN_URL/api/homes?owner_firebase_uid=test"
 
 2. **Missing Python dependencies**
    - Check `requirements.txt` has all packages
-   - Rebuild: `gcloud builds submit --tag gcr.io/project-8300/swapwithus-backend`
+   - Rebuild: `gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend`
 
 3. **Environment variables not set**
    - Verify: `gcloud run services describe swapwithus-backend --region=europe-west1`
@@ -263,8 +268,8 @@ curl "https://YOUR_CLOUD_RUN_URL/api/homes?owner_firebase_uid=test"
 - Use smaller base image
 
 **Error**: Permission denied
-- Enable APIs: https://console.cloud.google.com/apis/library?project=project-8300
-- Check IAM roles: https://console.cloud.google.com/iam-admin/iam?project=project-8300
+- Enable APIs: https://console.cloud.google.com/apis/library?project=swapwithus-project
+- Check IAM roles: https://console.cloud.google.com/iam-admin/iam?project=swapwithus-project
 
 ### Issue: Deployment permission errors
 
@@ -275,7 +280,7 @@ Add these IAM roles to your account (`msm.kabiri91@gmail.com`):
 - Storage Admin
 - Service Usage Admin (to enable APIs)
 
-Go to: https://console.cloud.google.com/iam-admin/iam?project=project-8300
+Go to: https://console.cloud.google.com/iam-admin/iam?project=swapwithus-project
 
 ---
 
@@ -287,22 +292,22 @@ If your PostgreSQL is on Cloud SQL (not a public IP), you need to connect differ
 
 ```bash
 gcloud run deploy swapwithus-backend \
-  --image gcr.io/project-8300/swapwithus-backend \
+  --image gcr.io/swapwithus-project/swapwithus-backend \
   --region europe-west1 \
-  --add-cloudsql-instances=project-8300:europe-north1:swapwithus-postgresql \
+  --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db \
   --env-vars-file=env.yaml \
-  --service-account=swapwithus-storage-service@project-8300.iam.gserviceaccount.com
+  --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com
 ```
 
 Then update `SWAPWITHUS_DB_HOST` in `env.yaml`:
 ```yaml
-SWAPWITHUS_DB_HOST: "/cloudsql/project-8300:europe-north1:swapwithus-postgresql"
+SWAPWITHUS_DB_HOST: "/cloudsql/swapwithus-project:europe-north1:swapwithus-db"
 ```
 
 ### Option 2: Public IP with Authorized Networks
 
 Add Cloud Run's IP ranges to Cloud SQL authorized networks:
-https://console.cloud.google.com/sql/instances/swapwithus-postgresql/connections?project=project-8300
+https://console.cloud.google.com/sql/instances/swapwithus-db/connections?project=swapwithus-project
 
 **Not recommended** - Cloud Run IPs change frequently.
 
@@ -331,7 +336,7 @@ Cloud Run pricing (as of 2025):
    ```
 
 3. **Monitor usage**:
-   https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/metrics?project=project-8300
+   https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/metrics?project=swapwithus-project
 
 ---
 
@@ -339,10 +344,10 @@ Cloud Run pricing (as of 2025):
 
 | Variable | Description | Example |
 |----------|-------------|---------|
-| `SWAPWITHUS_PROJECT_ID` | Google Cloud project ID | `project-8300` |
+| `SWAPWITHUS_PROJECT_ID` | Google Cloud project ID | `swapwithus-project` |
 | `SWAPWITHUS_DATABASE_URL` | PostgreSQL connection string | `postgresql+asyncpg://user:pass@host:5432/db` |
 | `SWAPWITHUS_MAPS_API_KEY` | Google Maps API key for geocoding | `AIza...` |
-| `GOOGLE_CLOUD_STORAGE_BUCKET` | GCS bucket name for images | `swapwithus-images-storage` |
+| `GOOGLE_CLOUD_STORAGE_BUCKET` | GCS bucket name for images | `swapwithus-listing-images` |
 
 **Add new variables to `env.yaml`, then redeploy:**
 ```bash
@@ -414,9 +419,9 @@ Then add DNS records as instructed by Google Cloud.
 
 | Task | Command |
 |------|---------|
-| Build image | `gcloud builds submit --tag gcr.io/project-8300/swapwithus-backend` |
-| Deploy | `gcloud run deploy swapwithus-backend --image gcr.io/project-8300/swapwithus-backend --region europe-west1 --env-vars-file=env.yaml --service-account=swapwithus-storage-service@project-8300.iam.gserviceaccount.com` |
-| View logs (console) | https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=project-8300 |
+| Build image | `gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend` |
+| Deploy | `gcloud run deploy swapwithus-backend --image gcr.io/swapwithus-project/swapwithus-backend --region europe-west1 --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db --env-vars-file=env.yaml --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com` |
+| View logs (console) | https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project |
 | Get URL | `gcloud run services describe swapwithus-backend --region=europe-west1 --format='value(status.url)'` |
 | Update env vars | `gcloud run services update swapwithus-backend --region=europe-west1 --env-vars-file=env.yaml` |
 | Delete service | `gcloud run services delete swapwithus-backend --region=europe-west1` |
@@ -460,11 +465,11 @@ swapwithus_backend/
 
 When something doesn't work:
 
-1. **Check logs**: https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=project-8300
+1. **Check logs**: https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
 2. **Verify env vars**: `gcloud run services describe swapwithus-backend --region=europe-west1`
 3. **Test endpoint**: `curl https://YOUR_URL/api/homes?owner_firebase_uid=test`
 4. **Check service status**: `gcloud run services list --region=europe-west1`
-5. **Review recent deployments**: https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/revisions?project=project-8300
+5. **Review recent deployments**: https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/revisions?project=swapwithus-project
 
 ---
 
@@ -512,8 +517,8 @@ When something doesn't work:
 
 **Via Google Cloud Console:**
 
-1. Go to: https://console.cloud.google.com/iam-admin/iam?project=project-8300
-2. Find: `swapwithus-storage-service@project-8300.iam.gserviceaccount.com`
+1. Go to: https://console.cloud.google.com/iam-admin/iam?project=swapwithus-project
+2. Find: `swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com`
 3. Click **Edit** (pencil icon)
 4. Click **"+ ADD ANOTHER ROLE"**
 5. Search for and add: **Cloud SQL Client**
@@ -522,14 +527,14 @@ When something doesn't work:
 **Via command line:**
 
 ```bash
-gcloud projects add-iam-policy-binding project-8300 \
-  --member="serviceAccount:swapwithus-storage-service@project-8300.iam.gserviceaccount.com" \
+gcloud projects add-iam-policy-binding swapwithus-project \
+  --member="serviceAccount:swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com" \
   --role="roles/cloudsql.client"
 ```
 
 ### Required Service Account Roles Summary
 
-Your service account (`swapwithus-storage-service@project-8300.iam.gserviceaccount.com`) needs:
+Your service account (`swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com`) needs:
 
 - ✅ **Storage Admin** - Access to Cloud Storage bucket for images
 - ✅ **Cloud SQL Client** - Connect to Cloud SQL database via Cloud SQL Proxy
@@ -540,19 +545,19 @@ Your service account (`swapwithus-storage-service@project-8300.iam.gserviceaccou
 After adding the role, deploy with Cloud SQL Proxy:
 
 ```bash
- --gcloud builds submit --tag gcr.io/project-8300/swapwithus-backend
-``` 
+gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend
+```
 ```bash
 gcloud run deploy swapwithus-backend \
-  --image gcr.io/project-8300/swapwithus-backend \
+  --image gcr.io/swapwithus-project/swapwithus-backend \
   --platform managed \
   --region europe-west1 \
-  --add-cloudsql-instances=project-8300:europe-north1:swapwithus-postgresql \
+  --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db \
   --env-vars-file=env.yaml \
-  --service-account=swapwithus-storage-service@project-8300.iam.gserviceaccount.com
+  --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com
 ```
 
-**Note:** You still use the public IP (`34.88.68.46`) in your `env.yaml` for `SWAPWITHUS_DB_HOST`. The Cloud SQL Proxy handles the secure connection automatically.
+**Note:** You still use the public IP (`35.228.209.98`) in your `env.yaml` for `SWAPWITHUS_DB_HOST`. The Cloud SQL Proxy handles the secure connection automatically.
 
 ---
 
@@ -576,7 +581,7 @@ Use Google's IAM Credentials API to sign URLs without a private key. The service
 
 1. **Enable IAM Credentials API:**
    ```bash
-   gcloud services enable iamcredentials.googleapis.com --project=project-8300
+   gcloud services enable iamcredentials.googleapis.com --project=swapwithus-project
    ```
 
 2. **Grant self-impersonation permission:**
@@ -585,9 +590,9 @@ Use Google's IAM Credentials API to sign URLs without a private key. The service
 
    **Via Console (CORRECT WAY):**
 
-   a. Go to: https://console.cloud.google.com/iam-admin/serviceaccounts?project=project-8300
+   a. Go to: https://console.cloud.google.com/iam-admin/serviceaccounts?project=swapwithus-project
 
-   b. Click on: `swapwithus-storage-service@project-8300.iam.gserviceaccount.com`
+   b. Click on: `swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com`
 
    c. Click the **PERMISSIONS** tab
 
@@ -595,7 +600,7 @@ Use Google's IAM Credentials API to sign URLs without a private key. The service
 
    e. Click **GRANT ACCESS**
 
-   f. In "New principals" enter: `swapwithus-storage-service@project-8300.iam.gserviceaccount.com` (the same service account!)
+   f. In "New principals" enter: `swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com` (the same service account!)
 
    g. In "Role" select: **Service Account Token Creator**
 
@@ -609,7 +614,7 @@ Use Google's IAM Credentials API to sign URLs without a private key. The service
    if os.getenv('K_SERVICE'):  # Detects Cloud Run
        # Use IAM signBlob API (no private key needed)
        signed_url = blob.generate_signed_url(
-           service_account_email='swapwithus-storage-service@project-8300.iam.gserviceaccount.com',
+           service_account_email='swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com',
            access_token=token
        )
    ```
@@ -640,7 +645,7 @@ IS_CLOUD_RUN = os.getenv('K_SERVICE') is not None
 
 if IS_CLOUD_RUN:
     # Use Unix socket for Cloud SQL Proxy
-    ASYNCPG_URL = f"postgresql://user:pass@/dbname?host=/cloudsql/project-8300:europe-north1:swapwithus-postgresql"
+    ASYNCPG_URL = f"postgresql://user:pass@/dbname?host=/cloudsql/swapwithus-project:europe-north1:swapwithus-db"
 else:
     # Use public IP from env vars
     ASYNCPG_URL = f"postgresql://user:pass@{DB_HOST}:5432/dbname"
@@ -648,7 +653,7 @@ else:
 
 ### What This Means
 
-- **Local development**: Uses `SWAPWITHUS_DB_HOST` (34.88.68.46) from your `.bashrc` or `env.yaml`
+- **Local development**: Uses `SWAPWITHUS_DB_HOST` (35.228.209.98) from your `.bashrc` or `env.yaml`
 - **Cloud Run**: Automatically uses Unix socket via Cloud SQL Proxy
 - **No manual switching needed** - same code works everywhere!
 
@@ -657,8 +662,8 @@ else:
 Keep your `env.yaml` with the **public IP**:
 
 ```yaml
-SWAPWITHUS_DB_HOST: "34.88.68.46"
-SWAPWITHUS_DATABASE_URL: "postgresql+asyncpg://postgres:password@34.88.68.46:5432/swapwithusDB"
+SWAPWITHUS_DB_HOST: "YOUR_DB_IP_ADDRESS"
+SWAPWITHUS_DATABASE_URL: "postgresql+asyncpg://postgres:your_password@YOUR_DB_IP:5432/swapwithusDB"
 ```
 
 The code will **ignore** these on Cloud Run and use the Unix socket instead.
@@ -696,7 +701,7 @@ Should return your listings in JSON format.
 Look for one of these messages in the logs:
 
 - 🌩️ `Cloud Run mode: Connecting via Cloud SQL Proxy`
-- 💻 `Local development mode: Connecting to 34.88.68.46`
+- 💻 `Local development mode: Connecting to 35.228.209.98`
 
 This confirms which mode the backend is running in.
 
@@ -706,15 +711,15 @@ This confirms which mode the backend is running in.
 
 Before going to production, verify:
 
-- ✅ Backend builds successfully: `gcloud builds submit --tag gcr.io/project-8300/swapwithus-backend`
+- ✅ Backend builds successfully: `gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend`
 - ✅ Deployment succeeds: `gcloud run deploy swapwithus-backend ...`
 - ✅ Service account has roles: Storage Admin + Cloud SQL Client
-- ✅ Cloud SQL instance added: `--add-cloudsql-instances=project-8300:europe-north1:swapwithus-postgresql`
+- ✅ Cloud SQL instance added: `--add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db`
 - ✅ Environment variables set: `--env-vars-file=env.yaml`
 - ✅ API responds: `curl https://YOUR_URL/api/homes?owner_firebase_uid=test` returns `[]`
 - ✅ Database connects: Check logs for "Cloud Run mode" message
 - ✅ Frontend updated: `.env.local` has `NEXT_PUBLIC_PYTHON_BACKEND_URL=https://YOUR_URL`
-- ✅ Local development works: `python app.py` connects to 34.88.68.46
+- ✅ Local development works: `python app.py` connects to 35.228.209.98
 
 ---
 
@@ -726,10 +731,10 @@ Before going to production, verify:
 
 **Region:** `europe-west1`
 
-**Project:** `project-8300`
+**Project:** `swapwithus-project`
 
 **Quick Links:**
-- **Logs:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=project-8300
-- **Metrics:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/metrics?project=project-8300
-- **Revisions:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/revisions?project=project-8300
+- **Logs:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
+- **Metrics:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/metrics?project=swapwithus-project
+- **Revisions:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/revisions?project=swapwithus-project
 
