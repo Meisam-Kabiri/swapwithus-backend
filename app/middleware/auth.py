@@ -10,10 +10,10 @@ if not firebase_admin._apps:
     # Try absolute path first (Docker), then relative path (local)
     import os
 
-    if os.path.exists("/app/project-8300-firebase-adminsdk.json"):
-        cred = credentials.Certificate("/app/project-8300-firebase-adminsdk.json")
+    if os.path.exists("/app/swapwithus-project-firebase-adminsdk.json"):
+        cred = credentials.Certificate("/app/swapwithus-project-firebase-adminsdk.json")
     else:
-        cred = credentials.Certificate("./project-8300-firebase-adminsdk.json")
+        cred = credentials.Certificate("./swapwithus-project-firebase-adminsdk.json")
     firebase_admin.initialize_app(cred)
 
 
