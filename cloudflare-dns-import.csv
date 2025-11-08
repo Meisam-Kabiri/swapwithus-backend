@@ -1,0 +1,7 @@
+Type,Name,Content,TTL,Priority,Proxied
+CNAME,pmfryqq5jynssazajk3w65l5ajnkj4j4._domainkey,pmfryqq5jynssazajk3w65l5ajnkj4j4.dkim.amazonses.com,3600,,false
+CNAME,zr6zps5j4era7rn77dbtjit2svzdbb4x._domainkey,zr6zps5j4era7rn77dbtjit2svzdbb4x.dkim.amazonses.com,3600,,false
+CNAME,gavfglr6nslqc5vlouqnlcq5dem5on6b._domainkey,gavfglr6nslqc5vlouqnlcq5dem5on6b.dkim.amazonses.com,3600,,false
+MX,mail,feedback-smtp.us-east-1.amazonses.com,3600,10,false
+TXT,mail,v=spf1 include:amazonses.com ~all,3600,,false
+TXT,_dmarc,v=DMARC1; p=none;,3600,,false
