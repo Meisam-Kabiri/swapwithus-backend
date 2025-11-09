@@ -1,0 +1,85 @@
+version: '3.8'
+
+services:
+  # PostgreSQL Database
+  postgres:
+    image: postgres:15-alpine
+    container_name: swapwithus-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${SWAPWITHUS_DATABASE_NAME:-swapwithus}
+      POSTGRES_USER: ${SWAPWITHUS_DB_USER:-postgres}
+      POSTGRES_PASSWORD: ${SWAPWITHUS_DB_PASSWORD:-devpassword}
+      POSTGRES_HOST_AUTH_METHOD: trust  # For local dev only
+    volumes:
+      # Named volume - recommended for development
+      - postgres_data:/var/lib/postgresql/data
+
+      # Optional: initialization scripts
+      # - ./init.sql:/docker-entrypoint-initdb.d/init.sql
+    ports:
+      - "5432:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${SWAPWITHUS_DB_USER:-postgres}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  # Redis Cache
+  redis:
+    image: redis:7-alpine
+    container_name: swapwithus-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    ports:
+      - "6379:6379"
+    command: redis-server --appendonly yes
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 3s
+      retries: 5
+
+  # Your Application (optional for local development)
+  app:
+    build: .
+    container_name: swapwithus-app
+    restart: unless-stopped
+    environment:
+      # Database connection (using service name as host)
+      SWAPWITHUS_DB_HOST: postgres
+      SWAPWITHUS_DATABASE_NAME: ${SWAPWITHUS_DATABASE_NAME:-swapwithus}
+      SWAPWITHUS_DB_USER: ${SWAPWITHUS_DB_USER:-postgres}
+      SWAPWITHUS_DB_PASSWORD: ${SWAPWITHUS_DB_PASSWORD:-devpassword}
+      SWAPWITHUS_DATABASE_URL: postgresql+asyncpg://postgres:devpassword@postgres:5432/swapwithus
+
+      # Redis connection
+      REDIS_URL: redis://redis:6379
+
+      # Copy other env vars from .env file
+      SWAPWITHUS_MAPS_API_KEY: ${SWAPWITHUS_MAPS_API_KEY}
+      GOOGLE_CLOUD_STORAGE_BUCKET: ${GOOGLE_CLOUD_STORAGE_BUCKET}
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      # For development: live code reload
+      - .:/app
+    # Override CMD for development with auto-reload
+    command: uvicorn app.main:app --host 0.0.0.0 --port 8080 --reload
+
+# Named volumes (managed by Docker)
+volumes:
+  postgres_data:
+    driver: local
+  redis_data:
+    driver: local
+
+networks:
+  default:
+    name: swapwithus-network
