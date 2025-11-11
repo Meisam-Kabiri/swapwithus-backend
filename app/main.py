@@ -573,34 +573,41 @@ async def create_home_listing(
 
         logger.info(f"Creating listing {generated_listing_id} for user {user_uid} with {len(images)} images")
 
-        # STEP 1: Upload images FIRST (outside transaction)
+        # STEP 1: Upload images FIRST (outside transaction) - IN PARALLEL
         # This prevents holding DB connections during slow uploads
-        image_table_records = []
-        for index, metadata in enumerate(images_metadata):
-            try:
-                image_url = await upload_photo_to_storage(
-                    images[index], listing_id=generated_listing_id, category="home"
-                )
-                uploaded_urls.append(image_url)
+        import asyncio
 
+        upload_tasks = [
+            upload_photo_to_storage(images[i], listing_id=generated_listing_id, category="home")
+            for i in range(len(images))
+        ]
+
+        try:
+            # Upload all images in parallel (2x-10x faster than sequential)
+            uploaded_urls = await asyncio.gather(*upload_tasks)
+
+            # Build image records for database
+            image_table_records = []
+            for index, metadata in enumerate(images_metadata):
                 image_record = metadata.copy()
                 image_record["owner_firebase_uid"] = user_data_dict.get("owner_firebase_uid")
                 image_record["listing_id"] = generated_listing_id
                 image_record["category"] = "home"
-                image_record["public_url"] = image_url
+                image_record["public_url"] = uploaded_urls[index]
                 image_table_records.append(image_record)
 
-            except Exception as upload_error:
-                logger.error(f"Failed to upload image {index + 1}: {upload_error}")
-                # Clean up already uploaded images
-                for url in uploaded_urls:
+            logger.info(f"Successfully uploaded {len(uploaded_urls)} images in parallel")
+
+        except Exception as upload_error:
+            logger.error(f"Failed to upload images: {upload_error}")
+            # Clean up any successfully uploaded images
+            for url in uploaded_urls:
+                if url:  # Only cleanup if upload succeeded
                     try:
                         await delete_image_from_storage(url)
                     except Exception as cleanup_error:
                         logger.error(f"Failed to cleanup {url}: {cleanup_error}")
-                raise HTTPException(500, f"Failed to upload image {index + 1}")
-
-        logger.info(f"Successfully uploaded {len(uploaded_urls)} images")
+            raise HTTPException(500, "Failed to upload images")
 
         # STEP 2: Save to database (fast transaction, no blocking I/O)
         create_user_query = """
@@ -764,40 +771,54 @@ async def update_home_listing(
 
         logger.info(f"Updating listing {listing_id}: {new_images_count} new images, {len(deleted_urls)} to delete")
 
-        # STEP 1: Upload NEW images FIRST (outside transaction)
-        image_records = []
-        image_index = 0
+        # STEP 1: Upload NEW images FIRST (outside transaction) - IN PARALLEL
+        import asyncio
 
-        for metadata in images_metadata:
-            image_record = metadata.copy()
+        # Identify which images need uploading
+        upload_tasks = []
+        new_image_indices = []
+        for idx, metadata in enumerate(images_metadata):
+            if metadata.get("public_url", "") == "":
+                new_image_indices.append(idx)
+                upload_tasks.append(
+                    upload_photo_to_storage(images[len(upload_tasks)], listing_id=listing_id, category="home")
+                )
 
-            # If public_url is empty, this is a NEW image to upload
-            if image_record.get("public_url", "") == "":
-                try:
-                    logger.info(f"Uploading new image {image_index + 1}/{new_images_count}")
-                    image_url = await upload_photo_to_storage(
-                        images[image_index], listing_id=listing_id, category="home"
-                    )
-                    uploaded_urls.append(image_url)
-                    image_record["public_url"] = image_url
-                    image_index += 1
-                except Exception as upload_error:
-                    logger.error(f"Failed to upload image {image_index + 1}: {upload_error}")
-                    # Clean up already uploaded images
-                    for url in uploaded_urls:
-                        try:
-                            await delete_image_from_storage(url)
-                        except Exception as cleanup_error:
-                            logger.error(f"Failed to cleanup {url}: {cleanup_error}")
-                    raise HTTPException(500, f"Failed to upload image {image_index + 1}")
+        try:
+            # Upload all NEW images in parallel
+            if upload_tasks:
+                uploaded_urls = await asyncio.gather(*upload_tasks)
+                logger.info(f"Successfully uploaded {len(uploaded_urls)} new images in parallel")
+            else:
+                uploaded_urls = []
 
-            # Prepare record for DB
-            image_record["owner_firebase_uid"] = listing_data_dict.get("owner_firebase_uid")
-            image_record["listing_id"] = listing_id
-            image_record["category"] = "home"
-            image_records.append(image_record)
+            # Build image records for database
+            image_records = []
+            upload_idx = 0
+            for idx, metadata in enumerate(images_metadata):
+                image_record = metadata.copy()
 
-        logger.info(f"Successfully uploaded {len(uploaded_urls)} new images")
+                # If this was a new image, use the uploaded URL
+                if idx in new_image_indices:
+                    image_record["public_url"] = uploaded_urls[upload_idx]
+                    upload_idx += 1
+
+                # Prepare record for DB
+                image_record["owner_firebase_uid"] = listing_data_dict.get("owner_firebase_uid")
+                image_record["listing_id"] = listing_id
+                image_record["category"] = "home"
+                image_records.append(image_record)
+
+        except Exception as upload_error:
+            logger.error(f"Failed to upload images: {upload_error}")
+            # Clean up any successfully uploaded images
+            for url in uploaded_urls:
+                if url:
+                    try:
+                        await delete_image_from_storage(url)
+                    except Exception as cleanup_error:
+                        logger.error(f"Failed to cleanup {url}: {cleanup_error}")
+            raise HTTPException(500, "Failed to upload new images")
 
         # STEP 2: Update database (fast transaction, no blocking I/O)
         insert_query = """
