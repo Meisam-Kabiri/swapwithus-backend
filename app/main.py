@@ -5,7 +5,7 @@ from typing import List, Optional
 
 import asyncpg
 from async_lru import alru_cache
-from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
+from fastapi import FastAPI, File, Form, HTTPException, Query, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
@@ -195,16 +195,15 @@ app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 @app.get("/api/health")
 @limiter.limit("100/minute")
 async def visit_home(request: Request):
-    print("Home endpoint visited")
+    logger.info("Health check endpoint accessed")
     return {"message": "Welcome to SwapWithUs API!"}
 
 
 @app.delete("/api/favorites/{listing_id}")
 @limiter.limit("50/minute")
 async def remove_favorite(request: Request, listing_id: str):
-    print("Removing favorite for listing ID:", listing_id)
     user_id = verify_firebase_token(request)
-    print("User ID from token:", user_id)
+    logger.info(f"Removing favorite for listing {listing_id}, user {user_id}")
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     if not listing_id:
@@ -226,14 +225,12 @@ async def remove_favorite(request: Request, listing_id: str):
 @app.post("/api/favorites")
 @limiter.limit("50/minute")
 async def add_favorite(request: Request):
-    print("Adding favorite for listing ID:")
     user_id = verify_firebase_token(request)
-    print("User ID from token:", user_id)
     if not user_id:
         raise HTTPException(status_code=401, detail="Unauthorized")
     body = await request.json()
     listing_id = body.get("listing_id")
-    print("Listing ID from query params:", listing_id)
+    logger.info(f"Adding favorite for listing {listing_id}, user {user_id}")
     if not listing_id:
         raise HTTPException(status_code=400, detail="listing_id is required")
 
@@ -452,10 +449,7 @@ async def get_home_listings(request: Request, owner_firebase_uid: str):
 
                 listings.append(listing)
         except Exception as e:
-            print(f"❌ Error fetching listings: {e}")
-            import traceback
-
-            print(traceback.format_exc())
+            logger.error(f"Error fetching listings: {e}", exc_info=True)
 
         finally:
             return listings  # Return array directly, not {"listings": ...}
@@ -530,10 +524,7 @@ async def delete_home_listing(request: Request, listing_id: str):
                 "message": "Listing deleted successfully with its corresponding images from image table and storage"
             }
         except Exception as e:
-            print(f"❌ Error deleting listing: {e}")
-            import traceback
-
-            print(traceback.format_exc())
+            logger.error(f"Error deleting listing: {e}", exc_info=True)
             raise HTTPException(status_code=500, detail="Failed to delete listing")
 
 
@@ -542,12 +533,20 @@ async def delete_home_listing(request: Request, listing_id: str):
 async def create_home_listing(
     request: Request, listing: str = Form(...), images: List[UploadFile] = File(...)
 ):
+    """
+    Create a new home listing with images.
+
+    FIXED: Images are uploaded BEFORE database transaction to prevent:
+    - Holding DB connections during slow uploads (was blocking other users)
+    - Orphaned images if transaction fails
+    - Transaction timeouts with many images
+    """
     # Verify user is authenticated and extract UID
     user_uid = verify_firebase_token(request)
 
     uploaded_urls = []
     try:
-        # Simulate saving to database and getting an ID
+        # Parse and validate input
         listing_data = HomeListingCreate.model_validate_json(listing)
         listing_data_dict = listing_data.model_dump(exclude_none=True, exclude_unset=True)
 
@@ -562,22 +561,73 @@ async def create_home_listing(
         metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
         images_metadata = metadata_collection_dict["images_metadata"]
 
-        # deleted_urls = metadata_collection.deleted_public_urls
+        # Validate image count
+        if len(images) > 20:
+            raise HTTPException(400, "Maximum 20 images allowed per listing")
 
-        create_user_query = """
-                        insert into users (owner_firebase_uid, email, name, profile_image, created_at, updated_at)
-                        values ($1, $2, $3, $4, NOW(), NOW()) ON CONFLICT (owner_firebase_uid) DO NOTHING
-                        """
+        if len(images) != len(images_metadata):
+            raise HTTPException(400, "Image count doesn't match metadata count")
 
         generated_listing_id = str(uuid.uuid4())
         listing_data_dict["listing_id"] = generated_listing_id
 
-        print("New listing data:", listing_data_dict)
-        print("Received image files:", [file.filename for file in images])
+        logger.info(f"Creating listing {generated_listing_id} for user {user_uid} with {len(images)} images")
+
+        # STEP 1: Upload images FIRST (outside transaction)
+        # This prevents holding DB connections during slow uploads
+        image_table_records = []
+        for index, metadata in enumerate(images_metadata):
+            try:
+                image_url = await upload_photo_to_storage(
+                    images[index], listing_id=generated_listing_id, category="home"
+                )
+                uploaded_urls.append(image_url)
+
+                image_record = metadata.copy()
+                image_record["owner_firebase_uid"] = user_data_dict.get("owner_firebase_uid")
+                image_record["listing_id"] = generated_listing_id
+                image_record["category"] = "home"
+                image_record["public_url"] = image_url
+                image_table_records.append(image_record)
+
+            except Exception as upload_error:
+                logger.error(f"Failed to upload image {index + 1}: {upload_error}")
+                # Clean up already uploaded images
+                for url in uploaded_urls:
+                    try:
+                        await delete_image_from_storage(url)
+                    except Exception as cleanup_error:
+                        logger.error(f"Failed to cleanup {url}: {cleanup_error}")
+                raise HTTPException(500, f"Failed to upload image {index + 1}")
+
+        logger.info(f"Successfully uploaded {len(uploaded_urls)} images")
+
+        # STEP 2: Save to database (fast transaction, no blocking I/O)
+        create_user_query = """
+            INSERT INTO users (owner_firebase_uid, email, name, profile_image, created_at, updated_at)
+            VALUES ($1, $2, $3, $4, NOW(), NOW())
+            ON CONFLICT (owner_firebase_uid) DO NOTHING
+        """
+
+        insert_query = """
+            INSERT INTO images (
+                owner_firebase_uid,
+                listing_id,
+                category,
+                public_url,
+                tag,
+                caption,
+                is_hero,
+                sort_order
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+        """
 
         async with get_pool().acquire() as conn:
             async with conn.transaction():
                 db_manager = DbManager()
+
+                # Create user if doesn't exist
                 await conn.execute(
                     create_user_query,
                     user_data_dict.get("owner_firebase_uid"),
@@ -585,38 +635,11 @@ async def create_home_listing(
                     user_data_dict.get("name"),
                     user_data_dict.get("profile_image"),
                 )
+
+                # Create listing
                 await db_manager.create_record_in_table(_db_pool, listing_data_dict, "homes")
 
-                # TODO: optimize the image before uploading them using the method optimize_image.py (based on pillow library)
-                image_table_records = []
-                for index, metadata in enumerate(images_metadata):
-                    image_url = await upload_photo_to_storage(
-                        images[index], listing_id=generated_listing_id, category="home"
-                    )
-                    uploaded_urls.append(image_url)
-                    image_record = metadata.copy()
-                    image_record["owner_firebase_uid"] = listing_data_dict.get("owner_firebase_uid")
-                    image_record["listing_id"] = generated_listing_id
-                    image_record["category"] = "home"
-                    image_record["public_url"] = image_url
-
-                    image_table_records.append(image_record)
-
-                insert_query = """
-          INSERT INTO images (
-              owner_firebase_uid,
-              listing_id,
-              category,
-              public_url,
-              tag,
-              caption,
-              is_hero,
-              sort_order
-          )
-          VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-      """
-
-                # Prepare data as list of tuples
+                # Insert image records
                 image_data = [
                     (
                         record["owner_firebase_uid"],
@@ -624,42 +647,43 @@ async def create_home_listing(
                         record["category"],
                         record["public_url"],
                         record["tag"],
-                        record["caption"],  # caption goes into description column
+                        record["caption"],
                         record["is_hero"],
                         record["sort_order"],
                     )
                     for record in image_table_records
                 ]
-
                 await conn.executemany(insert_query, image_data)
 
-        # Here you would save the listing data and images to your database/storage
+        logger.info(f"Successfully created listing {generated_listing_id}")
+
         return JSONResponse(
             status_code=201,
             content={
                 "id": str(generated_listing_id),
                 "message": "Home listing created successfully",
+                "image_count": len(uploaded_urls)
             },
         )
 
+    except HTTPException:
+        # Re-raise HTTP exceptions (already have proper status codes)
+        raise
+
     except Exception as e:
-        import traceback
+        logger.error(f"Error creating listing: {type(e).__name__}: {str(e)}", exc_info=True)
 
-        logger.error("=" * 50)
-        logger.error("ERROR OCCURRED:")
-        logger.error("Error type: %s", type(e).__name__)
-        logger.error("Error message: %s", str(e))
-        logger.error("=" * 50)
-        logger.error("FULL TRACEBACK: %s", traceback.format_exc())
+        # Clean up uploaded images if database save failed
+        if uploaded_urls:
+            logger.info(f"Cleaning up {len(uploaded_urls)} uploaded images")
+            for url in uploaded_urls:
+                try:
+                    await delete_image_from_storage(url)
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
 
-        # Clean up uploaded images on failure
-        for url in uploaded_urls:
-            try:
-                await delete_image_from_storage(url)
-            except Exception as cleanup_error:
-                logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
-
-        raise HTTPException(status_code=500, detail=str(e))
+        # Don't expose internal error details to user
+        raise HTTPException(status_code=500, detail="Failed to create listing. Please try again.")
 
 
 # When: After Firebase signup (email/password, Google, or Facebook)
@@ -686,13 +710,8 @@ async def create_user(request: Request, user: UserCreate):
             },
         )
     except Exception as e:
-        import traceback
-
-        logger.error("Error occurred while creating user: %s", str(e))
-        logger.error("Error type: %s", type(e).__name__)
-        logger.error("Error message: %s", str(e))
-        logger.error("FULL TRACEBACK: %s", traceback.format_exc())
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error creating user: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to create user. Please try again.")
 
 
 @app.put("/api/homes/{listing_id}")
@@ -703,7 +722,12 @@ async def update_home_listing(
     listing: str = Form(...),
     images: List[UploadFile] = File(default=[]),
 ):
+    """
+    Update an existing home listing.
 
+    FIXED: Images are uploaded BEFORE database transaction to prevent
+    holding DB connections during slow uploads.
+    """
     # Verify user is authenticated
     user_uid = verify_firebase_token(request)
 
@@ -722,89 +746,94 @@ async def update_home_listing(
     uploaded_urls = []
     try:
         # Parse form data
-        # print("Received listing JSON:", listing)
         listing_data = HomeListingCreate.model_validate_json(listing)
         listing_data_dict = listing_data.model_dump(exclude_none=True)
 
         metadata_collection = ImageMetadataCollection.model_validate_json(listing)
         metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
         images_metadata = metadata_collection_dict["images_metadata"]
-        deleted_urls = metadata_collection_dict.get("deleted_public_urls", None)
-
-        print("===================================")
-        print("metadata images is :", images_metadata)
-
-        # Extract deleted URLs from listing JSON
         deleted_urls = metadata_collection_dict.get("deleted_public_urls", [])
 
-        # print("Updating listing:", listing_id)
-        # print("Listing data:", listing_data_dict)
-        # print("Image metadata:", image_metadata)
-        # print("Received new image files:", len(images))
-        # print("Deleted URLs:", deleted_urls)
+        # Validate image count
+        new_images_count = sum(1 for m in images_metadata if m.get("public_url", "") == "")
+        if new_images_count > 20:
+            raise HTTPException(400, "Maximum 20 new images allowed")
+
+        if len(images) != new_images_count:
+            raise HTTPException(400, f"Expected {new_images_count} new images, got {len(images)}")
+
+        logger.info(f"Updating listing {listing_id}: {new_images_count} new images, {len(deleted_urls)} to delete")
+
+        # STEP 1: Upload NEW images FIRST (outside transaction)
+        image_records = []
+        image_index = 0
+
+        for metadata in images_metadata:
+            image_record = metadata.copy()
+
+            # If public_url is empty, this is a NEW image to upload
+            if image_record.get("public_url", "") == "":
+                try:
+                    logger.info(f"Uploading new image {image_index + 1}/{new_images_count}")
+                    image_url = await upload_photo_to_storage(
+                        images[image_index], listing_id=listing_id, category="home"
+                    )
+                    uploaded_urls.append(image_url)
+                    image_record["public_url"] = image_url
+                    image_index += 1
+                except Exception as upload_error:
+                    logger.error(f"Failed to upload image {image_index + 1}: {upload_error}")
+                    # Clean up already uploaded images
+                    for url in uploaded_urls:
+                        try:
+                            await delete_image_from_storage(url)
+                        except Exception as cleanup_error:
+                            logger.error(f"Failed to cleanup {url}: {cleanup_error}")
+                    raise HTTPException(500, f"Failed to upload image {image_index + 1}")
+
+            # Prepare record for DB
+            image_record["owner_firebase_uid"] = listing_data_dict.get("owner_firebase_uid")
+            image_record["listing_id"] = listing_id
+            image_record["category"] = "home"
+            image_records.append(image_record)
+
+        logger.info(f"Successfully uploaded {len(uploaded_urls)} new images")
+
+        # STEP 2: Update database (fast transaction, no blocking I/O)
+        insert_query = """
+            INSERT INTO images (
+                owner_firebase_uid, listing_id, category, public_url,
+                tag, caption, is_hero, sort_order
+            )
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (public_url, listing_id) DO UPDATE SET
+                tag = EXCLUDED.tag,
+                caption = EXCLUDED.caption,
+                is_hero = EXCLUDED.is_hero,
+                sort_order = EXCLUDED.sort_order,
+                updated_at = NOW()
+        """
 
         async with get_pool().acquire() as conn:
             async with conn.transaction():
                 db_manager = DbManager()
 
-                # 1. Update listing data in homes table
+                # Update listing data
                 await db_manager.update_record_in_table(
                     _db_pool, listing_data_dict, "homes", "listing_id", listing_id
                 )
 
-                # 2. Delete removed images from DB
+                # Delete removed images from DB
                 if deleted_urls:
                     for public_url in deleted_urls:
-                        try:
-                            await conn.execute(
-                                "DELETE FROM images WHERE public_url = $1 AND listing_id = $2",
-                                public_url,
-                                listing_id,
-                            )
-                        except Exception as e:
-                            print(f"Error deleting image {public_url}: {e}")
-
-                image_records = []
-
-                # print("Public URLs from metadata:", public_urls)
-                image_index = 0
-                for metadata in images_metadata:
-                    image_record = metadata.copy()
-                    print("this is public url:", image_record.get("public_url", ""))
-                    if image_record["public_url"] == "":
-                        image_record["public_url"] = await upload_photo_to_storage(
-                            images[image_index], listing_id=listing_id, category="home"
+                        await conn.execute(
+                            "DELETE FROM images WHERE public_url = $1 AND listing_id = $2",
+                            public_url,
+                            listing_id,
                         )
-                        uploaded_urls.append(image_record["public_url"])
-                        image_index += 1
-                    image_record["owner_firebase_uid"] = listing_data_dict.get("owner_firebase_uid")
-                    image_record["listing_id"] = listing_id
-                    image_record["category"] = "home"
-                    image_records.append(image_record)
-                print("Final image records to insert/update:", image_records)
 
+                # Insert/update image records
                 if image_records:
-                    insert_query = """
-                      INSERT INTO images (
-                          owner_firebase_uid,
-                          listing_id,
-                          category,
-                          public_url,
-                          tag,
-                          caption,
-                          is_hero,
-                          sort_order
-                      )
-                      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
-                      ON CONFLICT (public_url, listing_id) DO UPDATE SET
-                      tag = EXCLUDED.tag,
-                      caption = EXCLUDED.caption,
-                      is_hero = EXCLUDED.is_hero,
-                      sort_order = EXCLUDED.sort_order,
-                      updated_at = NOW()
-
-                  """
-
                     image_data = [
                         (
                             record["owner_firebase_uid"],
@@ -818,16 +847,18 @@ async def update_home_listing(
                         )
                         for record in image_records
                     ]
-
                     await conn.executemany(insert_query, image_data)
 
-        # Delete removed images from storage after successful DB transaction
+        # STEP 3: Delete removed images from storage (after DB transaction succeeds)
         if deleted_urls:
+            logger.info(f"Deleting {len(deleted_urls)} images from storage")
             for public_url in deleted_urls:
                 try:
                     await delete_image_from_storage(public_url)
                 except Exception as e:
-                    print(f"Error deleting image from storage {public_url}: {e}")
+                    logger.error(f"Failed to delete image from storage {public_url}: {e}")
+
+        logger.info(f"Successfully updated listing {listing_id}")
 
         return {
             "success": True,
@@ -837,20 +868,22 @@ async def update_home_listing(
             "images_deleted": len(deleted_urls),
         }
 
-    except Exception as e:
-        print(f"Error updating listing: {e}")
-        import traceback
+    except HTTPException:
+        raise
 
-        traceback.print_exc()
+    except Exception as e:
+        logger.error(f"Error updating listing: {type(e).__name__}: {str(e)}", exc_info=True)
 
         # Clean up uploaded images on failure
-        for url in uploaded_urls:
-            try:
-                await delete_image_from_storage(url)
-            except Exception as cleanup_error:
-                print(f"Failed to cleanup image {url}: {cleanup_error}")
+        if uploaded_urls:
+            logger.info(f"Cleaning up {len(uploaded_urls)} uploaded images")
+            for url in uploaded_urls:
+                try:
+                    await delete_image_from_storage(url)
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
 
-        raise HTTPException(status_code=500, detail=str(e))
+        raise HTTPException(status_code=500, detail="Failed to update listing. Please try again.")
 
 
 # DELETE /api/users/{uid} (Delete Account)
@@ -867,7 +900,7 @@ async def delete_user(request: Request, uid: str):
                 "SELECT 1 FROM users WHERE owner_firebase_uid = $1", uid
             )
             if not exist_user:
-                print("No listings found for user, skipping deletion of listings.")
+                logger.info(f"User {uid} not in database, skipping deletion")
                 return JSONResponse(
                     status_code=200,
                     content={"message": "User not in database but deleted successfully"},
@@ -894,13 +927,8 @@ async def delete_user(request: Request, uid: str):
             )
 
     except Exception as e:
-        import traceback
-
-        print("=" * 50)
-        print("ERROR OCCURRED:")
-        print(traceback.format_exc())
-        print("=" * 50)
-        raise HTTPException(status_code=500, detail=str(e))
+        logger.error(f"Error deleting user {uid}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to delete user. Please try again.")
 
 
 @app.patch("/api/users/{uid}")
@@ -921,8 +949,7 @@ async def update_user(request: Request, uid: str, user: UserUpdate):
                 updated_at = NOW()
                 WHERE owner_firebase_uid = $8 """
     user_dict = user.model_dump(exclude_none=True)
-    print("Updating user with data:", user_dict)
-    logging.info("Updating user with data:", user_dict)
+    logger.info(f"Updating user {uid} with fields: {list(user_dict.keys())}")
     try:
         async with get_pool().acquire() as conn:
             result = await conn.execute(
@@ -938,29 +965,38 @@ async def update_user(request: Request, uid: str, user: UserUpdate):
             )
             if result == "UPDATE 0":
                 raise HTTPException(status_code=404, detail="User not found")
-            logging.info(f"Successfully updated user: {uid}")
+            logger.info(f"Successfully updated user: {uid}")
             return JSONResponse(status_code=200, content={"message": "User updated successfully"})
     except Exception as e:
-
-        logging.error("=" * 50)
-        logging.error("ERROR OCCURRED:")
-        logging.error("Error type: %s", type(e).__name__)
-        logging.error("Error message: %s", str(e))
-        logging.error("=" * 50)
+        logger.error(f"Error updating user {uid}: {type(e).__name__}: {str(e)}", exc_info=True)
 
 
 # from fastapi import Response
 @app.get("/api/browse")
 @limiter.limit("30/minute")
 @alru_cache(maxsize=5, ttl=9 * 3600)
-async def browse_homes(request: Request):
+async def browse_homes(
+    request: Request,
+    page: int = Query(1, ge=1, description="Page number (starts at 1)"),
+    page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)")
+):
+    """
+    Browse all home listings with pagination.
+
+    FIXED: Added pagination to prevent timeouts and crashes as listings grow.
+    - Default: 20 items per page
+    - Max: 100 items per page
+    """
     import time
 
     tick = time.time()
     try:
         token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
 
-        print("Inside browse homes")
+        # Calculate offset for pagination
+        offset = (page - 1) * page_size
+
+        logger.info(f"Browse homes: page={page}, page_size={page_size}, offset={offset}")
         # query_home = """
         #   SELECT
         #   h.*,
@@ -979,26 +1015,32 @@ async def browse_homes(request: Request):
 
         #   """
 
+        # Query to get paginated homes with images
         query_home = """
-    SELECT
-        h.*,
-        json_agg(
-            json_build_object(
-                'id', i.listing_id,
-                'public_url', i.public_url,
-                'signed_url', 
-                    'https://cdn.swapwithus.com/home/' ||
-                    split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
-                    '?' || $1,
-                'tag', i.tag,
-                'caption', i.caption,
-                'is_hero', i.is_hero
-            ) ORDER BY i.is_hero DESC
-        ) AS images
-    FROM homes h
-    INNER JOIN images i ON i.listing_id = h.listing_id
-    GROUP BY h.listing_id;
-    """
+            SELECT
+                h.*,
+                json_agg(
+                    json_build_object(
+                        'id', i.listing_id,
+                        'public_url', i.public_url,
+                        'signed_url',
+                            'https://cdn.swapwithus.com/home/' ||
+                            split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
+                            '?' || $1,
+                        'tag', i.tag,
+                        'caption', i.caption,
+                        'is_hero', i.is_hero
+                    ) ORDER BY i.is_hero DESC
+                ) AS images
+            FROM homes h
+            INNER JOIN images i ON i.listing_id = h.listing_id
+            GROUP BY h.listing_id
+            ORDER BY h.created_at DESC
+            LIMIT $2 OFFSET $3;
+        """
+
+        # Query to get total count
+        query_count = "SELECT COUNT(*) FROM homes;"
 
         # expiration = 3600  # 1 hour
         # cookies_value = generate_signed_cookie(expiration=3600)
@@ -1021,43 +1063,58 @@ async def browse_homes(request: Request):
         #   )
 
         async with get_pool().acquire() as conn:
-            homes_list = await conn.fetch(query_home, token_prefix)
+            # Get total count for pagination metadata
+            total_count = await conn.fetchval(query_count)
+
+            # Get paginated homes
+            homes_list = await conn.fetch(query_home, token_prefix, page_size, offset)
+
             import json
+            import math
 
-            # homes_list = [dict(l) for l in homes_list]
-            # pprint(homes_list)
-            # res = json.dumps(homes_list, indent=2, default=str)
             if not homes_list:
-                return JSONResponse(status_code=404, content={"message": "No homes found"})
+                return {
+                    "homes": [],
+                    "pagination": {
+                        "page": page,
+                        "page_size": page_size,
+                        "total_items": total_count,
+                        "total_pages": math.ceil(total_count / page_size) if total_count > 0 else 0,
+                        "has_next": False,
+                        "has_previous": page > 1
+                    }
+                }
 
-            # After fetching from DB
+            # Convert to dict and parse images JSON
             homes_dict = [dict(home) for home in homes_list]
 
-            # Parse the images JSON string for each home
             for home in homes_dict:
                 if isinstance(home.get("images"), str):
                     home["images"] = json.loads(home["images"])
-                    # for img in home['images']:
-                    #     print(img['public_url'], "\n----\n")
-                    #     print(img['signed_url'])
-                    #     signed_url = append_token_to_url(img['public_url'], token_prefix)
-                    #     img['signed_url'] = signed_url
-                    #     logging.info(signed_url)
 
             tock = time.time()
-            logging.info(f"Browse homes took {tock - tick} seconds")
-            return {"homes": homes_dict}
+            logger.info(f"Browse homes took {tock - tick:.2f}s - returned {len(homes_dict)} items")
 
-            # return {"homes": homes_list, **cookies_response}
+            # Calculate pagination metadata
+            total_pages = math.ceil(total_count / page_size) if total_count > 0 else 0
+            has_next = page < total_pages
+            has_previous = page > 1
+
+            return {
+                "homes": homes_dict,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total_items": total_count,
+                    "total_pages": total_pages,
+                    "has_next": has_next,
+                    "has_previous": has_previous
+                }
+            }
 
     except Exception as e:
-
-        logging.error("=" * 50)
-        logging.error("ERROR OCCURRED:")
-        logging.error("Error type: %s", type(e).__name__)
-        logging.error("Error message: %s", str(e))
-        logging.error("=" * 50)
-        raise HTTPException(status_code=500, detail="Internal Server Error")
+        logger.error(f"Error in browse homes: {type(e).__name__}: {str(e)}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to browse homes. Please try again.")
 
 
 if __name__ == "__main__":

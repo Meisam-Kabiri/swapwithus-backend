@@ -100,7 +100,14 @@ export GOOGLE_APPLICATION_CREDENTIALS="/home/me/service-account.json"
 async def upload_photo_to_storage(
     photo: UploadFile, listing_id: str, category: str = "general"
 ) -> str:
-    """Upload photo to Google Cloud Storage and return public URL"""
+    """
+    Upload photo to Google Cloud Storage and return public URL.
+
+    FIXED: Now runs blocking I/O (PIL image processing and GCS upload)
+    in a thread pool to avoid blocking the event loop.
+    """
+    import asyncio
+
     try:
         # Validate file
         if not photo.content_type or not photo.content_type.startswith("image/"):
@@ -108,11 +115,6 @@ async def upload_photo_to_storage(
 
         if photo.size and photo.size > 5_000_000:  # 5MB limit
             raise ValueError("File size too large (max 5MB)")
-
-        # Initialize Google Cloud Storage client
-        client = storage.Client()
-        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
-        bucket = client.bucket(bucket_name)
 
         # Generate secure filename
         file_extension = photo.filename.split(".")[-1].lower() if photo.filename else "jpg"
@@ -126,23 +128,42 @@ async def upload_photo_to_storage(
         unique_id = str(uuid.uuid4())[:12]  # Shorter UUID (12 chars)
         blob_name = f"{category.lower()}/{listing_id}_{timestamp}_{unique_id}.{file_extension}"
 
-        # Create blob and upload
-        blob = bucket.blob(blob_name)
+        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
 
         # Reset file pointer to beginning
         await photo.seek(0)
-        # Optimize image and get format
-        optimized_image, content_type = optimize_image(photo.file, max_width=1200, quality=85)
 
-        # Upload file with metadata
-        blob.upload_from_file(optimized_image, content_type=content_type, timeout=30)
+        # Read file content into memory (async operation)
+        file_content = await photo.read()
 
-        # Note: Uniform bucket-level access is enabled, so no need for make_public()
-        # The bucket should be configured for public read access at bucket level
+        # Define the blocking operations to run in thread pool
+        def _blocking_upload():
+            """
+            This function contains all the BLOCKING I/O operations:
+            - PIL image processing (Image.open, resize, save)
+            - GCS upload (blob.upload_from_file)
+
+            Running in thread pool prevents blocking the event loop.
+            """
+            # Initialize GCS client (thread-safe)
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
+
+            # Optimize image (blocking PIL operations)
+            file_obj = io.BytesIO(file_content)
+            optimized_image, content_type = optimize_image(file_obj, max_width=1200, quality=85)
+
+            # Upload to GCS (blocking network I/O)
+            blob.upload_from_file(optimized_image, content_type=content_type, timeout=30)
+
+            return blob_name, content_type
+
+        # Run blocking operations in thread pool
+        loop = asyncio.get_event_loop()
+        blob_name, content_type = await loop.run_in_executor(None, _blocking_upload)
 
         # Return public URL
-        # cdn = "cdn.swapwithus.com"
-        # cdn_url = f"https://{cdn}/{blob_name}"
         public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
 
         logger.info(f"Successfully uploaded photo: {blob_name}")
@@ -150,12 +171,12 @@ async def upload_photo_to_storage(
         return public_url
 
     except GoogleCloudError as e:
-        logger.error(f"Google Cloud Storage error: {e}")
+        logger.error(f"Google Cloud Storage error: {e}", exc_info=True)
         raise Exception("Failed to upload photo: Storage service error")
 
     except Exception as e:
-        logger.error(f"Photo upload error: {e}")
-        raise Exception(f"Failed to upload photo: {str(e)}")
+        logger.error(f"Photo upload error: {e}", exc_info=True)
+        raise Exception("Failed to upload photo")
 
 
 def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
@@ -208,13 +229,19 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
             return signed_url
 
     except Exception as e:
-        logger.error(f"CRITICAL: Failed to generate signed URL: {e}")
+        logger.error(f"CRITICAL: Failed to generate signed URL: {e}", exc_info=True)
         # NEVER return public URLs - all images must remain private
-        raise Exception(f"Cannot generate signed URL for private image: {str(e)}")
+        raise Exception("Cannot generate signed URL for private image")
 
 
 async def delete_image_from_storage(public_url: str) -> bool:
-    """Delete image from Google Cloud Storage using public URL"""
+    """
+    Delete image from Google Cloud Storage using public URL.
+
+    FIXED: Now runs blocking GCS delete operation in thread pool.
+    """
+    import asyncio
+
     try:
         bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
 
@@ -222,15 +249,20 @@ async def delete_image_from_storage(public_url: str) -> bool:
         # Format: https://storage.googleapis.com/bucket-name/path/to/file.jpg
         blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
 
-        # Initialize storage client
-        client = storage.Client()
-        bucket = client.bucket(bucket_name)
-        blob = bucket.blob(blob_name)
+        # Define blocking delete operation
+        def _blocking_delete():
+            """Run GCS delete in thread pool to avoid blocking event loop"""
+            client = storage.Client()
+            bucket = client.bucket(bucket_name)
+            blob = bucket.blob(blob_name)
+            blob.delete()
+            return blob_name
 
-        # Delete the blob
-        blob.delete()
+        # Run in thread pool
+        loop = asyncio.get_event_loop()
+        deleted_blob = await loop.run_in_executor(None, _blocking_delete)
 
-        logger.info(f"Successfully deleted image: {blob_name}")
+        logger.info(f"Successfully deleted image: {deleted_blob}")
         return True
 
     except Exception as e:

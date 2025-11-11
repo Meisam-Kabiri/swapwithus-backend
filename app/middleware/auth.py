@@ -32,8 +32,9 @@ def verify_firebase_token(request: Request) -> str:
     try:
         decoded_token = firebase_auth.verify_id_token(token)
         return decoded_token["uid"]
-    except Exception as e:
-        raise HTTPException(status_code=401, detail=f"Invalid token: {str(e)}")
+    except Exception:
+        # Don't expose Firebase error details to user
+        raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
 def verify_user_owns_resource(request: Request, claimed_uid: str):
