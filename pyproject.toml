@@ -92,3 +92,10 @@ python_functions = "test_*"
 python_classes = "Test*"
 testpaths = ["test"]
 addopts = "-v"
+# Auto-detect async tests without requiring @pytest.mark.asyncio decorator
+asyncio_mode = "auto"
+# Create ONE event loop per session and reuse it for ALL tests and fixtures
+# This allows session-scoped async fixtures (like db_pool) to work across all tests
+# Without this, each test gets a new loop and can't use session-scoped fixtures
+asyncio_default_fixture_loop_scope = "session"
+asyncio_default_test_loop_scope = "session"

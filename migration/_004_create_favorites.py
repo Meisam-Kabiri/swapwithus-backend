@@ -1,9 +1,9 @@
 import asyncio
 
-from database.connection import get_db_connection
+from app.database.connection import get_db_connection
 
 
-def create_favorite_table_sql():
+def create_favorites_table_sql():
     """Return SQL statement to create the 'favorites' table."""
 
     return """
@@ -27,7 +27,7 @@ def main():
     async def run():
         conn = await get_db_connection()
         try:
-            create_table_sql = create_favorite_table_sql()
+            create_table_sql = create_favorites_table_sql()
             await conn.execute(create_table_sql)
             print("✅ 'favorite' table created successfully.")
         except Exception as e:

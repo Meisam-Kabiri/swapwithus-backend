@@ -5,9 +5,7 @@
 *.json.env
 env.yaml
 
-# Test files
-*test
-test*
+
 
 # Claude files
 claude*

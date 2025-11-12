@@ -4,7 +4,7 @@
 
 import asyncio
 
-from database.connection import get_db_connection
+from app.database.connection import get_db_connection
 
 
 # for image we are using a separate table
