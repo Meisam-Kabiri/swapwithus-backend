@@ -1,5 +1,5 @@
 from datetime import date
-from typing import Annotated, Any, Dict, List, Literal, Optional
+from typing import Annotated, Any, Dict, List, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
@@ -16,15 +16,15 @@ class CarDetails(BaseModel):
         populate_by_name=True
     )
 
-    make_model_year: Optional[str] = None
-    transmission: Optional[str] = None
-    fuel_type: Optional[str] = None
-    connector_type: Optional[str] = None
-    seats: Optional[Annotated[int, Field(ge=1, le=20)]] = None
-    insurance_status: Optional[str] = None
-    min_driver_age: Optional[Annotated[int, Field(ge=16, le=99)]] = None
-    mileage_limit: Optional[Annotated[int, Field(ge=0)]] = None
-    pickup_note: Optional[str] = None
+    make_model_year: str | None = None
+    transmission: str | None = None
+    fuel_type: str | None = None
+    connector_type: str | None = None
+    seats: Annotated[int, Field(ge=1, le=20)] | None = None
+    insurance_status: str | None = None
+    min_driver_age: Annotated[int, Field(ge=16, le=99)] | None = None
+    mileage_limit: Annotated[int, Field(ge=0)] | None = None
+    pickup_note: str | None = None
 
 
 class HomeListingCreate(BaseModel):
@@ -35,13 +35,13 @@ class HomeListingCreate(BaseModel):
     )
 
     # Primary key (will be generated as UUID in backend)
-    listing_id: Optional[UUID] = None
+    listing_id: UUID | None = None
 
     # Owner (Required)
     owner_firebase_uid: str
-    email: Optional[EmailStr] = None
-    name: Optional[Annotated[str, Field(max_length=100, min_length=2)]] = None
-    profile_image: Optional[str] = None
+    email: EmailStr | None = None
+    name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
+    profile_image: str | None = None
 
     # Step 1: Property Type (Optional)
     accommodation_type: Literal["entire_place", "private_room"]
@@ -59,45 +59,45 @@ class HomeListingCreate(BaseModel):
 
     # Step 2: Capacity & Layout (Optional except max_guests)
     max_guests: Annotated[int, Field(gt=0, le=50)]
-    bedrooms: Optional[Annotated[int, Field(ge=0, le=50)]] = None
-    size_m2: Optional[Annotated[float, Field(gt=0, le=100000)]] = None
-    surroundings_type: Optional[Annotated[str, Field(max_length=30)]] = None
+    bedrooms: Annotated[int, Field(ge=0, le=50)] | None = None
+    size_m2: Annotated[float, Field(gt=0, le=100000)] | None = None
+    surroundings_type: Annotated[str, Field(max_length=30)] | None = None
 
     # Step 3: Location (Required: country, city; Optional: rest)
     country: Annotated[str, Field(max_length=100, min_length=2)]
     city: Annotated[str, Field(max_length=100, min_length=2)]
-    street_address: Optional[Annotated[str, Field(max_length=200, min_length=2)]] = None
-    postal_code: Optional[Annotated[str, Field(max_length=20, min_length=2)]] = None
-    latitude: Optional[Annotated[float, Field(ge=-90, le=90)]] = None
-    longitude: Optional[Annotated[float, Field(ge=-180, le=180)]] = None
-    privacy_radius: Optional[Annotated[int, Field(ge=0)]] = 500
+    street_address: Annotated[str, Field(max_length=200, min_length=2)] | None = None
+    postal_code: Annotated[str, Field(max_length=20, min_length=2)] | None = None
+    latitude: Annotated[float, Field(ge=-90, le=90)] | None = None
+    longitude: Annotated[float, Field(ge=-180, le=180)] | None = None
+    privacy_radius: Annotated[int, Field(ge=0)] | None = 500
 
     # Step 5: House Rules
-    house_rules: Optional[List[str]] = Field(default_factory=list)
-    main_residence: Optional[bool] = None
+    house_rules: List[str] | None = Field(default_factory=list)
+    main_residence: bool | None = None
 
     # Step 6: Transport & Car Swap
     open_to_car_swap: bool = False
     require_car_swap_match: bool = False
-    car_details: Optional[CarDetails] = None
+    car_details: CarDetails | None = None
 
 
     # Step 7:  Available Amenities
-    amenities: Optional[Dict[str, Any]] = Field(default_factory=dict)
-    accessibility_features: Optional[List[str]] = Field(default_factory=list)
-    parking_type: Optional[Literal["none", "street", "driveway", "garage", "covered"]] = None
+    amenities: Dict[str, Any] | None = Field(default_factory=dict)
+    accessibility_features: List[str] | None = Field(default_factory=list)
+    parking_type: Literal["none", "street", "driveway", "garage", "covered"] | None = None
 
     # Step 8: Availability
-    is_flexible: Optional[bool] = None
-    available_from: Optional[date] = None
-    available_until: Optional[date] = None
+    is_flexible: bool | None = None
+    available_from: date | None = None
+    available_until: date | None = None
 
     # Step 9: Title and Description (Required: title; Optional: description)
     title: Annotated[str, Field(max_length=200, min_length=5)]
-    description: Optional[Annotated[str, Field(max_length=5000, min_length=10)]] = None
+    description: Annotated[str, Field(max_length=5000, min_length=10)] | None = None
 
     # Status (will default in DB)
-    status: Optional[Literal["draft", "published", "archived"]] = "draft"
+    status: Literal["draft", "published", "archived"] | None = "draft"
 
 
 class ImageMetadataItem(BaseModel):
@@ -106,14 +106,14 @@ class ImageMetadataItem(BaseModel):
         populate_by_name=True,
     )
     
-    caption: Optional[Annotated[str, Field(max_length=200)]] = None
-    tag: Optional[Annotated[str, Field(max_length=100)]] = None
-    is_hero: Optional[bool] = False
-    sort_order: Optional[Annotated[int, Field(ge=0)]] = None
+    caption: Annotated[str, Field(max_length=200)] | None = None
+    tag: Annotated[str, Field(max_length=100)] | None = None
+    is_hero: bool | None = False
+    sort_order: Annotated[int, Field(ge=0)] | None = None
 
     # Just for editing existing listing:
-    public_url: Optional[Annotated[str, Field(max_length=2048)]] = None
-    cdn_url: Optional[Annotated[str, Field(max_length=2048)]] = None
+    public_url: Annotated[str, Field(max_length=2048)] | None = None
+    cdn_url: Annotated[str, Field(max_length=2048)] | None = None
 
 
 class ImageMetadataCollection(BaseModel):
@@ -121,14 +121,14 @@ class ImageMetadataCollection(BaseModel):
         alias_generator=snake_to_camel,
         populate_by_name=True,
     )
-    images_metadata: Optional[List[ImageMetadataItem]] = Field(default_factory=list)
-    deleted_public_urls: Optional[List[Annotated[str, Field(max_length=2048)]]] = Field(
+    images_metadata: List[ImageMetadataItem] | None = Field(default_factory=list)
+    deleted_public_urls: List[Annotated[str, Field(max_length=2048)]] | None = Field(
         default_factory=list
     )
 
 
 class FullHomeListing(HomeListingCreate):
-    images: Optional[List[ImageMetadataItem]] = Field(default_factory=list)
+    images: List[ImageMetadataItem] | None = Field(default_factory=list)
 
 
 class UserCreate(BaseModel):
@@ -139,7 +139,7 @@ class UserCreate(BaseModel):
     owner_firebase_uid: str
     email: Annotated[EmailStr, Field(max_length=255)]
     name: Annotated[str, Field(max_length=100, min_length=2)]
-    profile_image: Optional[Annotated[str, Field(max_length=500)]] = None
+    profile_image: Annotated[str, Field(max_length=500)] | None = None
     is_email_verified: bool
 
 
@@ -148,13 +148,13 @@ class UserUpdate(BaseModel):
         alias_generator=snake_to_camel,
         populate_by_name=True,
     )
-    name: Optional[Annotated[str, Field(max_length=100, min_length=2)]] = None
-    phone_country_code: Optional[Annotated[str, Field(max_length=5, min_length=2)]] = None
-    phone_number: Optional[Annotated[str, Field(pattern=r"^\d{4,15}$")]] = None
-    linkedin_url: Optional[Annotated[str, Field(max_length=200, min_length=5)]] = None
-    instagram_id: Optional[Annotated[str, Field(max_length=100, min_length=2)]] = None
-    facebook_id: Optional[Annotated[str, Field(max_length=100, min_length=2)]] = None
-    profile_image: Optional[Annotated[str, Field(max_length=500)]] = None
+    name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
+    phone_country_code: Annotated[str, Field(max_length=5, min_length=2)] | None = None
+    phone_number: Annotated[str, Field(pattern=r"^\d{4,15}$")] | None = None
+    linkedin_url: Annotated[str, Field(max_length=200, min_length=5)] | None = None
+    instagram_id: Annotated[str, Field(max_length=100, min_length=2)] | None = None
+    facebook_id: Annotated[str, Field(max_length=100, min_length=2)] | None = None
+    profile_image: Annotated[str, Field(max_length=500)] | None = None
 
 
 class FirebaseUserIfNotExists(BaseModel):
@@ -163,9 +163,9 @@ class FirebaseUserIfNotExists(BaseModel):
         populate_by_name=True,
     )
     owner_firebase_uid: str
-    email: Optional[Annotated[EmailStr, Field(max_length=255)]] = None
-    name: Optional[Annotated[str, Field(max_length=100, min_length=2)]] = None
-    profile_image: Optional[str] = None
+    email: Annotated[EmailStr, Field(max_length=255)] | None = None
+    name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
+    profile_image: str | None = None
 
 
 
