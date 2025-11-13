@@ -6,3 +6,4 @@ pytest
 pytest-asyncio
 isort
 polyfactory
+pre-commit

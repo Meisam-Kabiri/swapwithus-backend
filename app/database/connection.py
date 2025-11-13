@@ -50,13 +50,11 @@ else:
     print(f"💻 Local development mode: Connecting to {DB_HOST}")
 
 
-# Connection functions using pure asyncpg for maximum speed
-async def get_db_connection():
-    """Get single asyncpg connection for simple operations"""
-    return await asyncpg.connect(ASYNCPG_URL)
+# Global pool instance
+_db_pool: asyncpg.Pool | None = None
 
 
-async def get_db_pool():
+async def create_asyncpg_pool():
     """Get asyncpg connection pool for production - optimal for swap platform"""
     return await asyncpg.create_pool(
         ASYNCPG_URL,
@@ -65,8 +63,20 @@ async def get_db_pool():
         command_timeout=60,
     )
 
+
+def get_pool() -> asyncpg.Pool:
+    """Get database pool with runtime check"""
+    if _db_pool is None:
+        raise RuntimeError("Database pool not initialized")
+    return _db_pool
+
+
+
+
+
 if __name__ == "__main__":
     print("Database connection module for SwapWithUs")
-    
+
     import asyncio
-    asyncio.run(get_db_pool())
+
+    asyncio.run(create_asyncpg_pool())

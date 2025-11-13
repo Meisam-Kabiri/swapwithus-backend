@@ -327,7 +327,8 @@ async def delete_image_from_storage(public_url: str) -> bool:
 
 if __name__ == "__main__":
     import sys
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..', '..'))
+
+    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
     from app.utils.cdn_auth import make_urlprefix_token
 
     print("=" * 60)

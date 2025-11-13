@@ -1,5 +1,7 @@
-from fastapi.testclient import TestClient
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
+from httpx import ASGITransport, AsyncClient
 
 from app.main import app
 from test.factories import UserCreateFactory
@@ -9,7 +11,7 @@ def test_create_user(create_db_pool):
     user_data = UserCreateFactory.build()
 
     # Mock Firebase auth verification
-    with patch('app.main.verify_firebase_token') as mock_verify:
+    with patch("app.api.users.verify_firebase_token") as mock_verify:
         mock_verify.return_value = user_data.owner_firebase_uid
 
         # Use TestClient with context manager (triggers lifespan)
@@ -26,12 +28,10 @@ def test_create_user(create_db_pool):
             assert data.get("message") == "User created successfully"
 
 
-from httpx import AsyncClient
-from httpx._transports.asgi import ASGITransport
 async def test_create_user_async(create_db_pool):  # Use db_pool fixture
     user_data = UserCreateFactory.build()
 
-    with patch('app.main.verify_firebase_token') as mock_verify:
+    with patch("app.api.users.verify_firebase_token") as mock_verify:
         mock_verify.return_value = user_data.owner_firebase_uid
 
         app.state.limiter.enabled = False
@@ -47,14 +47,11 @@ async def test_create_user_async(create_db_pool):  # Use db_pool fixture
             async with create_db_pool.acquire() as conn:
                 user = await conn.fetchrow(
                     "SELECT * FROM users WHERE owner_firebase_uid = $1",
-                    user_data.owner_firebase_uid
+                    user_data.owner_firebase_uid,
                 )
                 assert user is not None
                 assert user["email"] == user_data.email
                 assert user["name"] == user_data.name
 
-
         # you can also use client = AsyncClient(..) and not use async with statement
         # but then you have to remember to call await client.aclose() at the end of the test
-
-      

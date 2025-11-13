@@ -4,10 +4,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-
-def snake_to_camel(snake_str: str) -> str:
-    first, *rest = snake_str.split("_")
-    return first + "".join(x.title() for x in rest)
+from app.models.image import ImageMetadataItem
+from app.models.utils import snake_to_camel
 
 
 class CarDetails(BaseModel):
@@ -100,79 +98,12 @@ class HomeListingCreate(BaseModel):
     status: Literal["draft", "published", "archived"] | None = "draft"
 
 
-class ImageMetadataItem(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-    )
-    
-    caption: Annotated[str, Field(max_length=200)] | None = None
-    tag: Annotated[str, Field(max_length=100)] | None = None
-    is_hero: bool | None = False
-    sort_order: Annotated[int, Field(ge=0)] | None = None
-
-    # Just for editing existing listing:
-    public_url: Annotated[str, Field(max_length=2048)] | None = None
-    cdn_url: Annotated[str, Field(max_length=2048)] | None = None
-
-
-class ImageMetadataCollection(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-    )
-    images_metadata: List[ImageMetadataItem] | None = Field(default_factory=list)
-    deleted_public_urls: List[Annotated[str, Field(max_length=2048)]] | None = Field(
-        default_factory=list
-    )
-
-
-class FullHomeListing(HomeListingCreate):
+class HomeListingResponse(HomeListingCreate):
+    """Home listing with images for API responses"""
     images: List[ImageMetadataItem] | None = Field(default_factory=list)
 
 
-class UserCreate(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-      )
-    owner_firebase_uid: str
-    email: Annotated[EmailStr, Field(max_length=255)]
-    name: Annotated[str, Field(max_length=100, min_length=2)]
-    profile_image: Annotated[str, Field(max_length=500)] | None = None
-    is_email_verified: bool
-
-
-class UserUpdate(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-    )
-    name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
-    phone_country_code: Annotated[str, Field(max_length=5, min_length=2)] | None = None
-    phone_number: Annotated[str, Field(pattern=r"^\d{4,15}$")] | None = None
-    linkedin_url: Annotated[str, Field(max_length=200, min_length=5)] | None = None
-    instagram_id: Annotated[str, Field(max_length=100, min_length=2)] | None = None
-    facebook_id: Annotated[str, Field(max_length=100, min_length=2)] | None = None
-    profile_image: Annotated[str, Field(max_length=500)] | None = None
-
-
-class FirebaseUserIfNotExists(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-    )
-    owner_firebase_uid: str
-    email: Annotated[EmailStr, Field(max_length=255)] | None = None
-    name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
-    profile_image: str | None = None
-
-
-
-
-
-
-#  You need validators for:
+#  validators for:
 
 #   a) Coordinates validation:
 #   from pydantic import model_validator
