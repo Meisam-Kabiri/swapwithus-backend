@@ -12,7 +12,7 @@ from slowapi.errors import RateLimitExceeded
 import app.database.connection as db_connection
 from app.api.common import QueryBuilder
 from app.database.connection import create_asyncpg_pool, get_pool
-from app.middleware.auth import verify_firebase_token, verify_user_owns_resource
+from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
 from app.middleware.rate_limit import custom_rate_limit_handler, limiter
 
 # TODO: Use background tasks for image deletion/upload
@@ -67,12 +67,14 @@ from app.api.caravans import router as caravans_router
 from app.api.clothes import router as clothes_router
 from app.api.homes import router as homes_router
 from app.api.users import router as users_router
+from app.api.favorites import router as favorites_router
 
 app.include_router(books_router, prefix="/api")
 app.include_router(caravans_router, prefix="/api")
 app.include_router(clothes_router, prefix="/api")
 app.include_router(homes_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
+app.include_router(favorites_router, prefix="/api")
 
 @app.get("/api/health")
 @limiter.limit("100/minute")

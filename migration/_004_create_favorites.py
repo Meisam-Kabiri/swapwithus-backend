@@ -7,7 +7,7 @@ def create_favorites_table_sql():
     """Return SQL statement to create the 'favorites' table."""
 
     return """
-  CREATE TABLE favorites (
+  CREATE TABLE if not exists favorites (
   owner_firebase_uid  VARCHAR(100) NOT NULL REFERENCES users(owner_firebase_uid)  ON DELETE CASCADE,
   listing_id  UUID NOT NULL REFERENCES homes(listing_id) ON DELETE CASCADE,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
@@ -15,7 +15,7 @@ def create_favorites_table_sql():
 );
 
 -- useful for counts & reverse lookups
-CREATE INDEX idx_favorites_listing ON favorites(listing_id);
+CREATE INDEX if not exists idx_favorites_listing ON favorites(listing_id);
 
 
     """

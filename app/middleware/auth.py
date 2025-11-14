@@ -17,7 +17,7 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 
-def verify_firebase_token(request: Request) -> str:
+def extract_firebase_user_uid(request: Request) -> str:
     """
     Verify Firebase token and return the user UID
     Raises HTTPException if token is invalid or missing
@@ -41,7 +41,7 @@ def verify_user_owns_resource(request: Request, claimed_uid: str):
     """
     Verify that the authenticated user matches the claimed UID
     """
-    actual_uid = verify_firebase_token(request)
+    actual_uid = extract_firebase_user_uid(request)
 
     if actual_uid != claimed_uid:
         raise HTTPException(

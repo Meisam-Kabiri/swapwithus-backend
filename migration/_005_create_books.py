@@ -20,7 +20,6 @@ def create_books_table_sql():
 
       -- Owner (from frontend user data)
       owner_firebase_uid VARCHAR(100) NOT NULL,
-      email VARCHAR(255) NULL,
 
       -- Step 1: Property Type
       title VARCHAR(100) NOT NULL,
@@ -32,8 +31,8 @@ def create_books_table_sql():
       publication_year INTEGER NULL,
 
       -- Step 2: Capacity & Layout
-      country VARCHAR(20) NOT NULL,
-      city VARCHAR(50) NOT NULL,
+      country VARCHAR(100) NOT NULL,
+      city VARCHAR(100) NOT NULL,
       exchange_method VARCHAR(30) NOT NULL,
       exchange_mode VARCHAR(30) NOT NULL,
 

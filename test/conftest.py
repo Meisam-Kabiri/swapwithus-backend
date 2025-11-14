@@ -49,3 +49,41 @@ async def create_db_pool():
     yield db_connection._db_pool
 
     await db_connection._db_pool.close()
+
+
+from unittest.mock import patch
+@pytest.fixture(scope="session", autouse=True)
+def mock_optimize_images():
+    with patch("app.services.gcp_image_service.optimize_image", side_effect=lambda f, max_width, quality: (f, "image/jpeg")) as mock_func:
+        yield mock_func
+
+
+
+@pytest.fixture(scope="session", autouse=True)
+def fake_upload_images_to_gcp():
+    """Fixture to mock GCP image upload during tests"""
+    from unittest.mock import AsyncMock
+    import uuid
+
+    with patch("app.api.common.upload_photo_to_storage", new_callable=AsyncMock) as mock_upload:
+        # Return unique URL each time
+        mock_upload.side_effect = lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"
+        yield mock_upload
+        
+@pytest.fixture(scope="session", autouse=True)
+def fake_upload_images_to_gcp():
+    """Fixture to mock GCP image upload during tests"""
+    from unittest.mock import AsyncMock
+    import uuid
+
+    with patch("app.api.common.upload_photo_to_storage", new_callable=AsyncMock) as mock_upload:
+        # Return unique URL each time
+        mock_upload.side_effect = lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"
+        yield mock_upload
+
+
+@pytest.fixture(scope="function")
+def mock_extract_firebase_uid():
+    with patch("app.api.users.extract_firebase_user_uid") as mock_verify:
+        mock_verify.return_value = "test_firebase_uid_123"
+        yield mock_verify

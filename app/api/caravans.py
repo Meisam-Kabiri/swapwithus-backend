@@ -9,7 +9,7 @@ from typing import List
 from fastapi import APIRouter, File, Form, Request, UploadFile
 
 from app.api.common import create_listing
-from app.middleware.auth import verify_firebase_token
+from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
 from app.models.caravan_listing import CaravanListingCreate
 from app.models.user import FirebaseUserUpsert
@@ -32,7 +32,7 @@ async def create_caravan_listing(
     Uses generic listing service for consistent behavior across all listing types.
     """
     # Verify user is authenticated
-    user_uid = verify_firebase_token(request)
+    user_uid = extract_firebase_user_uid(request)
 
     # Parse and validate input
     listing_data = CaravanListingCreate.model_validate_json(listing)

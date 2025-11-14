@@ -10,9 +10,11 @@ import uuid
 from typing import List
 
 from fastapi import HTTPException, UploadFile
+from fastapi.responses import JSONResponse
 
 from app.database.query_builder import QueryBuilder
 from app.services.gcp_image_service import delete_image_from_storage, upload_photo_to_storage
+from app.database.connection import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -104,7 +106,7 @@ async def create_listing(
             raise HTTPException(500, "Failed to upload images")
 
         # STEP 2: Save to database in transaction
-        from app.main import get_pool
+        
 
         create_user_query = """
             INSERT INTO users (owner_firebase_uid, email, name, profile_image, created_at, updated_at)
@@ -154,11 +156,14 @@ async def create_listing(
 
         logger.info(f"Successfully created {category} listing {listing_id}")
 
-        return {
-            "id": listing_id,
-            "message": f"{category.title()} listing created successfully",
-            "image_count": len(uploaded_urls),
-        }
+        return JSONResponse(
+            status_code=201,
+            content={
+                "id": listing_id,
+                "message": f"{category.title()} listing created successfully",
+                "image_count": len(uploaded_urls),
+            },
+        )
 
     except HTTPException:
         raise

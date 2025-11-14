@@ -27,7 +27,7 @@ def create_images_table_sql():
       updated_at TIMESTAMPTZ DEFAULT NOW(),
 
       FOREIGN KEY (owner_firebase_uid) REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
-      FOREIGN KEY (listing_id) REFERENCES homes(listing_id) ON DELETE CASCADE, 
+      -- No FK on listing_id since it can reference homes, books, clothes, etc. tables
       UNIQUE (listing_id, public_url)
 
     );

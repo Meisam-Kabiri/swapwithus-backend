@@ -26,9 +26,11 @@ class QueryBuilder:
             raise ValueError(f"Invalid table: {table_name}")
 
         # Convert lists/dicts to JSON strings for JSONB columns
+        # But keep arrays as lists for TEXT[] columns (like genre_tags)
         processed_data = {}
         for key, value in data.items():
-            if isinstance(value, (list, dict)):
+            # Don't convert lists for books table (genre_tags is TEXT[], not JSONB)
+            if isinstance(value, dict) or (isinstance(value, list) and table_name != "books"):
                 processed_data[key] = json.dumps(value)
             else:
                 processed_data[key] = value

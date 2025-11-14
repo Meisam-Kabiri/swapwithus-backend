@@ -19,9 +19,9 @@ class BookListingCreate(BaseModel):
 
     # Owner (Required)
     owner_firebase_uid: str
-    email: EmailStr | None = None
-    name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
-    profile_image: str | None = None
+    # email: EmailStr | None = None
+    # name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
+    # profile_image: str | None = None
 
     # Book Details (Required)
     title: Annotated[str, Field(max_length=200, min_length=1)]
@@ -46,7 +46,7 @@ class BookListingCreate(BaseModel):
     genre_tags: List[str] | None = Field(default_factory=list)
 
     # Status (will default in DB)
-    status: Literal["draft", "published", "archived"] | None = "draft"
+    # status: Literal["draft", "published", "archived"] | None = "draft"
 
 
 class BookListingResponse(BookListingCreate):

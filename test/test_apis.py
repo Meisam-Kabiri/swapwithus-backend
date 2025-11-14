@@ -1,17 +1,19 @@
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
+from fastapi import Request, UploadFile
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from test.factories import UserCreateFactory
+from test.factories import UserCreateFactory, BookListingCreateFactory, fake_uploadfile_list
+
 
 
 def test_create_user(create_db_pool):
     user_data = UserCreateFactory.build()
 
     # Mock Firebase auth verification
-    with patch("app.api.users.verify_firebase_token") as mock_verify:
+    with patch("app.api.users.extract_firebase_user_uid") as mock_verify:
         mock_verify.return_value = user_data.owner_firebase_uid
 
         # Use TestClient with context manager (triggers lifespan)
@@ -31,7 +33,7 @@ def test_create_user(create_db_pool):
 async def test_create_user_async(create_db_pool):  # Use db_pool fixture
     user_data = UserCreateFactory.build()
 
-    with patch("app.api.users.verify_firebase_token") as mock_verify:
+    with patch("app.api.users.extract_firebase_user_uid") as mock_verify:
         mock_verify.return_value = user_data.owner_firebase_uid
 
         app.state.limiter.enabled = False

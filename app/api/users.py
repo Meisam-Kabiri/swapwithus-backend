@@ -5,7 +5,7 @@ import logging
 from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
 from app.models.user import UserCreate, UserUpdate
-from app.middleware.auth import verify_firebase_token, verify_user_owns_resource
+from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
 from app.services.gcp_image_service import delete_image_from_storage
 from app.middleware.rate_limit import  limiter
 
@@ -22,7 +22,7 @@ async def get_my_user_data(request: Request):
     UID is extracted from Firebase token, not from URL
     """
     # Extract UID from token
-    uid = verify_firebase_token(request)
+    uid = extract_firebase_user_uid(request)
 
     query = """
         SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
@@ -66,7 +66,7 @@ async def create_user(request: Request, user: UserCreate):
     Verifies Firebase token and creates user record in database.
     """
     # Verify Firebase token
-    user_uid = verify_firebase_token(request)
+    user_uid = extract_firebase_user_uid(request)
 
     # Verify the token UID matches the user being created
     if user.owner_firebase_uid != user_uid:

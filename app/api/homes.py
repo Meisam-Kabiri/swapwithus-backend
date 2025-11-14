@@ -16,8 +16,7 @@ import asyncio
 
 from app.api.common import QueryBuilder
 from app.database.connection import get_pool 
-from app.main import get_pool
-from app.middleware.auth import verify_firebase_token, verify_user_owns_resource
+from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
 from app.middleware.rate_limit import limiter
 from app.models.home_listing import HomeListingCreate
 from app.models.image import ImageMetadataCollection
@@ -44,7 +43,7 @@ async def get_my_home_listings(request: Request):
     including images with CDN-signed URLs for secure access.
     """
     # Extract UID from token
-    uid = verify_firebase_token(request)
+    uid = extract_firebase_user_uid(request)
 
     query_home = """
     SELECT * FROM homes WHERE owner_firebase_uid = $1
@@ -92,117 +91,6 @@ async def get_my_home_listings(request: Request):
             raise HTTPException(status_code=500, detail="Failed to fetch listings")
 
 
-@router.get("")
-@limiter.limit("60/minute")
-async def get_home_listings(request: Request, owner_firebase_uid: str):
-    """
-    Get home listings for a specific user by Firebase UID.
-
-    Returns all home listings owned by the specified user with signed image URLs,
-    hero image selection, and complete listing details.
-    """
-    # Verify user can only delete their own account
-    verify_user_owns_resource(request, owner_firebase_uid)
-
-    query_home = """
-      SELECT * FROM homes WHERE owner_firebase_uid = $1
-      """
-
-    # query_images = """
-    # SELECT public_url,  tag, caption, is_hero, sort_order
-    # FROM images
-    # WHERE owner_firebase_uid = $1 AND category = 'home' AND listing_id = $2
-    # ORDER BY sort_order
-    # """
-
-    query_images = """
-      SELECT 
-          public_url,
-          'https://cdn.swapwithus.com/home/' ||
-              split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
-              '?' || $3 AS signed_url,
-          tag,
-          caption,
-          is_hero,
-          sort_order
-      FROM images
-      WHERE 
-          owner_firebase_uid = $1 
-          AND category = 'home' 
-          AND listing_id = $2
-      ORDER BY sort_order;
-      """
-
-    async with get_pool().acquire() as conn:
-        try:
-            home_rows = await conn.fetch(query_home, owner_firebase_uid)
-
-            listings = []
-            token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
-            for home_row in home_rows:
-                # Fetch images for this specific listing
-                image_rows = await conn.fetch(
-                    query_images, owner_firebase_uid, home_row["listing_id"], token_prefix
-                )
-                image_rows = [dict(img) for img in image_rows]
-                # for i, img in enumerate(image_rows):
-                #     public_url = img['public_url']
-                #     signed_url = append_token_to_url(public_url, token_prefix)
-                #     image_rows[i]['signed_url'] = signed_url
-                #     logger.info(signed_url)
-
-                # Convert home row to dict
-                listing = dict(home_row)
-
-                # Add images as array
-                listing["images"] = image_rows
-
-                # Find hero image, or use first image as fallback
-                hero_image = next((img for img in image_rows if img["is_hero"]), None)
-                if hero_image:
-                    listing["hero_image_url"] = hero_image["signed_url"]
-                elif image_rows:  # ← If no hero, use first image
-                    listing["hero_image_url"] = image_rows[0]["signed_url"]
-                else:  # ← No images at all
-                    listing["hero_image_url"] = None
-
-                listings.append(listing)
-        except Exception as e:
-            logger.error(f"Error fetching listings: {e}", exc_info=True)
-
-        finally:
-            return listings  # Return array directly, not {"listings": ...}
-
-            # response will look like:
-            #   [
-            #     {
-            #       "listing_id": "uuid",
-            #       "title": "Beautiful Home",
-            #       "city": "Paris",
-            #       "hero_image_url": "https://storage.googleapis.com/.../image1.jpg",
-            #       "images": [
-            #         {
-            #           "cdn_url": "https://storage.googleapis.com/.../image1.jpg",
-            #           "tag": "living_room",
-            #           "description": "Living room",
-            #           "is_hero": true,
-            #           "sort_order": 0
-            #         },
-            #         {
-            #           "cdn_url": "https://storage.googleapis.com/.../image2.jpg",
-            #           "tag": "bedroom",
-            #           "description": "Master bedroom",
-            #           "is_hero": false,
-            #           "sort_order": 1
-            #         }
-            #       ],
-            #       ...other home fields
-            #     }
-
-
-#   ]
-
-
 @router.delete("{listing_id}")
 @limiter.limit("5/hour")
 async def delete_home_listing(request: Request, listing_id: str):
@@ -212,7 +100,7 @@ async def delete_home_listing(request: Request, listing_id: str):
     Removes the listing from the database and deletes all associated images
     from both the database and cloud storage. Only the owner can delete their listing.
     """
-    user_uid = verify_firebase_token(request)
+    user_uid = extract_firebase_user_uid(request)
     # Check if listing belongs to this user
     async with get_pool().acquire() as conn:
         listing_owner = await conn.fetchval(
@@ -264,7 +152,7 @@ async def create_home_listing(
     metadata to the database. Supports up to 20 images per listing.
     """
     # Verify user is authenticated and extract UID
-    user_uid = verify_firebase_token(request)
+    user_uid = extract_firebase_user_uid(request)
 
     uploaded_urls = []
     try:
@@ -428,7 +316,7 @@ async def update_home_listing(
     and modifying image metadata. Only the owner can update their listing.
     """
     # Verify user is authenticated
-    user_uid = verify_firebase_token(request)
+    user_uid = extract_firebase_user_uid(request)
 
     # Check if listing belongs to this user
     async with get_pool().acquire() as conn:

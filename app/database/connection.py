@@ -71,6 +71,11 @@ def get_pool() -> asyncpg.Pool:
     return _db_pool
 
 
+async def get_db_connection() -> asyncpg.Connection:
+    """Get a single database connection for migrations"""
+    return await asyncpg.connect(ASYNCPG_URL)
+
+
 
 
 

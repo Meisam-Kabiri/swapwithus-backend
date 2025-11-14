@@ -45,8 +45,6 @@ def create_clothes_table_sql():
       name VARCHAR(100),
       profile_image VARCHAR(500),
 
-      -- Status
-      status VARCHAR(20) DEFAULT 'draft' CHECK (status IN ('draft', 'published', 'archived')),
 
       -- Timestamps
       created_at TIMESTAMPTZ DEFAULT NOW(),
