@@ -9,7 +9,7 @@ class UserCreate(BaseModel):
     model_config = ConfigDict(
         alias_generator=snake_to_camel,
         populate_by_name=True,
-      )
+    )
     owner_firebase_uid: str
     email: Annotated[EmailStr, Field(max_length=255)]
     name: Annotated[str, Field(max_length=100, min_length=2)]

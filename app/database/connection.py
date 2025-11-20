@@ -76,9 +76,6 @@ async def get_db_connection() -> asyncpg.Connection:
     return await asyncpg.connect(ASYNCPG_URL)
 
 
-
-
-
 if __name__ == "__main__":
     print("Database connection module for SwapWithUs")
 

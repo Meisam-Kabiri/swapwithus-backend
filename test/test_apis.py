@@ -1,12 +1,10 @@
+from test.factories import UserCreateFactory
 from unittest.mock import patch
 
 from fastapi.testclient import TestClient
-from fastapi import Request, UploadFile
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from test.factories import UserCreateFactory, BookListingCreateFactory, fake_uploadfile_list
-
 
 
 def test_create_user(create_db_pool):

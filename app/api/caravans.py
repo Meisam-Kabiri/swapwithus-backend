@@ -3,6 +3,7 @@ Caravans API endpoints
 
 Handles CRUD operations for caravan listings.
 """
+
 import logging
 from typing import List
 

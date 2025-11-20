@@ -1,31 +1,23 @@
 import logging
 from contextlib import asynccontextmanager
-from typing import Optional
 
-import asyncpg
 from async_lru import alru_cache
 from fastapi import FastAPI, HTTPException, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
 from slowapi.errors import RateLimitExceeded
 
 import app.database.connection as db_connection
-from app.api.common import QueryBuilder
 from app.database.connection import create_asyncpg_pool, get_pool
-from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
 from app.middleware.rate_limit import custom_rate_limit_handler, limiter
 
 # TODO: Use background tasks for image deletion/upload
 # TODO: Use Dependency Injection for DB pool
 # TODO: modify __init__.py for packages to make them more effective
 # TODO: Add testing for all endpoints
-from app.models.user import UserCreate, UserUpdate
-from app.services.gcp_image_service import (
-    delete_image_from_storage,
-)
-from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
+from app.utils.cdn_auth import make_urlprefix_token
 
-logging.basicConfig(level=logging.INFO)
+import sys
+logging.basicConfig(stream=sys.stdout, level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
@@ -65,23 +57,25 @@ app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 from app.api.books import router as books_router
 from app.api.caravans import router as caravans_router
 from app.api.clothes import router as clothes_router
-from app.api.homes import router as homes_router
-from app.api.users import router as users_router
 from app.api.favorites import router as favorites_router
+from app.api.homes import router as homes_router
+from app.api.listings import router as listings_router
+from app.api.users import router as users_router
 
 app.include_router(books_router, prefix="/api")
 app.include_router(caravans_router, prefix="/api")
 app.include_router(clothes_router, prefix="/api")
 app.include_router(homes_router, prefix="/api")
+app.include_router(listings_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(favorites_router, prefix="/api")
+
 
 @app.get("/api/health")
 @limiter.limit("100/minute")
 async def visit_home(request: Request):
     logger.info("Health check endpoint accessed")
     return {"message": "Welcome to SwapWithUs API!"}
-
 
 
 # from fastapi import Response
@@ -104,7 +98,7 @@ async def browse_homes(
 
     tick = time.time()
     try:
-        token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
+        token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
 
         # Calculate offset for pagination
         offset = (page - 1) * page_size
@@ -137,8 +131,8 @@ async def browse_homes(
                         'id', i.listing_id,
                         'public_url', i.public_url,
                         'signed_url',
-                            'https://cdn.swapwithus.com/home/' ||
-                            split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
+                            'https://cdn.swapwithus.com/homes/' ||
+                            split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/homes/', 2) ||
                             '?' || $1,
                         'tag', i.tag,
                         'caption', i.caption,
@@ -235,4 +229,3 @@ if __name__ == "__main__":
     import uvicorn
 
     uvicorn.run(app, host="0.0.0.0", port=8000)
-

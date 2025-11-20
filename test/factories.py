@@ -1,13 +1,14 @@
 import io
+
 from fastapi import UploadFile
 from polyfactory.factories.pydantic_factory import ModelFactory
 from polyfactory.fields import Use
 from pydantic import BaseModel
 
-from app.models.user import UserCreate
-from app.models.home_listing import HomeListingCreate, HomeListingResponse
 from app.models.book_listing import BookListingCreate, BookListingResponse
-from app.models.image import ImageMetadataItem, ImageMetadataCollection
+from app.models.home_listing import HomeListingCreate, HomeListingResponse
+from app.models.image import ImageMetadataCollection, ImageMetadataItem
+from app.models.user import UserCreate
 
 
 class UserCreateFactory(ModelFactory[UserCreate]):
@@ -25,19 +26,20 @@ class UserCreateFactory(ModelFactory[UserCreate]):
     )
 
 
-
 class HomeListingCreateFactory(ModelFactory[HomeListingCreate]):
     """Factory for generating fake HomeListingCreate data"""
 
     __model__ = HomeListingCreate
     __check_model__ = False  # Suppress deprecation warning
-    
+
+
 class HomeListingResponseFactory(ModelFactory[HomeListingResponse]):
     """Factory for generating fake HomeListingResponse data"""
 
     __model__ = HomeListingResponse
     __check_model__ = False  # Suppress deprecation warning
-    
+
+
 class BookListingCreateFactory(ModelFactory[BookListingCreate]):
     """Factory for generating fake BookListingCreate data"""
 
@@ -48,21 +50,21 @@ class BookListingCreateFactory(ModelFactory[BookListingCreate]):
     title = Use(lambda: f"Book Title {ModelFactory.__random__.randint(1, 999)}")
     author = Use(lambda: f"Author Name {ModelFactory.__random__.randint(1, 999)}")
 
-    
-    
+
 class BookListingResponseFactory(ModelFactory[BookListingResponse]):
     """Factory for generating fake BookListingResponse data"""
 
     __model__ = BookListingResponse
     __check_model__ = False  # Suppress deprecation warning
-    
-    
+
+
 class ImageMetadataItemFactory(ModelFactory[ImageMetadataItem]):
     """Factory for generating fake ImageMetadataItem data"""
 
     __model__ = ImageMetadataItem
-    __check_model__ = False  # Suppress deprecation warning 
-    
+    __check_model__ = False  # Suppress deprecation warning
+
+
 class ImageMetadataCollectionFactory(ModelFactory[ImageMetadataCollection]):
     """Factory for generating fake ImageMetadataCollection data"""
 
@@ -72,6 +74,7 @@ class ImageMetadataCollectionFactory(ModelFactory[ImageMetadataCollection]):
 
 class FileClass(BaseModel):
     """Model for generating fake file data"""
+
     filename: str
     content: bytes
     content_type: str
@@ -108,9 +111,6 @@ def fake_uploadfile_list(count: int = 3) -> list[UploadFile]:
     files = []
     for _ in range(count):
         file = FakeFileFactory.build()
-        upload_file = UploadFile(
-            filename=file.filename,
-            file=io.BytesIO(file.content)
-        )
+        upload_file = UploadFile(filename=file.filename, file=io.BytesIO(file.content))
         files.append(upload_file)
     return files

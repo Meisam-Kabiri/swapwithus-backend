@@ -338,7 +338,7 @@ if __name__ == "__main__":
     KEY_B64 = "TMLeUr9-SURjle9ky_jHnQ=="
     KEY_NAME = "cdnkey"
     blob_name = "2f884215-7155-49b1-8db1-14e0117cdbd1_20251014_60e31a1d-d04.png"
-    cdn_base = "https://cdn.swapwithus.com/home/"
+    cdn_base = "https://cdn.swapwithus.com/homes/"
 
     print(f"Key Name: {KEY_NAME}")
     print(f"Key Value: {KEY_B64}")

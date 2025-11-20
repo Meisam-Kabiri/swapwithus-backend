@@ -1,13 +1,17 @@
-from fastapi import APIRouter, Request, HTTPException
-from app.middleware.auth import extract_firebase_user_uid
-from app.database.connection import get_pool
-from app.middleware.rate_limit import limiter
-from app.utils.cdn_auth import make_urlprefix_token, append_token_to_url
 import logging
+
+from fastapi import APIRouter, HTTPException, Request
+
+from app.database.connection import get_pool
+from app.middleware.auth import extract_firebase_user_uid
+from app.middleware.rate_limit import limiter
+from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
+
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/favorites", tags=["favorites"])
+
 
 @router.delete("/{listing_id}")
 @limiter.limit("50/minute")
@@ -82,7 +86,7 @@ async def get_favorites(request: Request):
                 if favorite.get("hero_image_url"):
                     favorite["signed_url"] = append_token_to_url(
                         favorite["hero_image_url"],
-                        make_urlprefix_token("https://cdn.swapwithus.com/home/"),
+                        make_urlprefix_token("https://cdn.swapwithus.com"),
                     )
             return favorites
         except Exception as e:

@@ -59,8 +59,7 @@ def create_clothes_table_sql():
     CREATE INDEX IF NOT EXISTS idx_clothes_category ON clothes(clothing_category);
     CREATE INDEX IF NOT EXISTS idx_clothes_size ON clothes(size);
     CREATE INDEX IF NOT EXISTS idx_clothes_gender ON clothes(gender);
-    CREATE INDEX IF NOT EXISTS idx_clothes_status ON clothes(status);
-    CREATE INDEX IF NOT EXISTS idx_clothes_created_at ON clothes(created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_clothes_created_at ON clothes(created_at);
     """
 
 

@@ -3,6 +3,7 @@ Clothes API endpoints
 
 Handles CRUD operations for clothing listings.
 """
+
 import logging
 from typing import List
 

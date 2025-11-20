@@ -1,7 +1,5 @@
 import json
 
-import asyncpg  # type: ignore
-
 
 class QueryBuilder:
     @staticmethod
@@ -22,7 +20,7 @@ class QueryBuilder:
             await conn.execute(query, *values)
         """
         # Whitelist table names
-        if table_name not in ["homes", "users", "books"]:
+        if table_name not in ["homes", "users", "books", "clothes", "caravans"]:
             raise ValueError(f"Invalid table: {table_name}")
 
         # Convert lists/dicts to JSON strings for JSONB columns
@@ -69,7 +67,7 @@ class QueryBuilder:
             )
             await conn.execute(query, *values)
         """
-        if table_name not in ["homes", "listings", "users", "books"]:
+        if table_name not in ["homes", "listings", "users", "books", "clothes", "caravans"]:
             raise ValueError(f"Invalid table: {table_name}")
 
         set_clauses = []
@@ -85,3 +83,53 @@ class QueryBuilder:
         query = f"UPDATE {table_name} SET {set_statement} WHERE {where_column} = ${len(values)}"
 
         return query, values
+
+    @staticmethod
+    def build_get_listings_by_owner_id_query(table_name: str, gcloud_folder_name: str = None) -> str:
+        """
+        Returns a parameterized SQL query string to fetch all listings from the specified table
+        for a given owner_firebase_uid with images aggregated as JSON array.
+
+        This avoids N+1 queries and prevents duplicate listing data by aggregating images
+        into a single JSON array per listing.
+
+        Args:
+            table_name: Name of the table to query (e.g., "homes", "books", "clothes", "caravans").
+            gcloud_folder_name: Optional folder name in GCS (defaults to table_name).
+
+        Returns:
+            A SQL query string with placeholders: $1 = owner_firebase_uid, $2 = token_prefix.
+        """
+        if table_name not in ["homes", "books", "clothes", "caravans"]:
+            raise ValueError(f"Invalid table: {table_name}")
+
+        if gcloud_folder_name is None:
+            gcloud_folder_name = table_name
+
+        # Get singular category name (homes -> home, books -> book)
+        category = table_name.rstrip('s')
+
+        query = f"""
+                SELECT
+                    l.*,
+                    '{category}' as category,
+                    json_agg(
+                        json_build_object(
+                            'public_url', i.public_url,
+                            'signed_url', 'https://cdn.swapwithus.com/{gcloud_folder_name}/' ||
+                                split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{gcloud_folder_name}/', 2) ||
+                                '?' || $2,
+                            'tag', i.tag,
+                            'caption', i.caption,
+                            'is_hero', i.is_hero,
+                            'sort_order', i.sort_order
+                        ) ORDER BY i.sort_order
+                    ) AS images
+                FROM {table_name} l
+                LEFT JOIN images i ON i.listing_id = l.listing_id
+                WHERE l.owner_firebase_uid = $1
+                GROUP BY l.listing_id
+                ORDER BY l.created_at DESC;
+                """
+
+        return query

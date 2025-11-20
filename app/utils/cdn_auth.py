@@ -134,7 +134,7 @@ def append_token_to_url(cdn_url: str, url_prefix_token: str) -> str:
     # extract blob name
     blob_name = cdn_url.split("storage.googleapis.com/swapwithus-listing-images/home/")[1]
 
-    base = "https://cdn.swapwithus.com/home/"
+    base = "https://cdn.swapwithus.com/homes/"
     return f"{base}{blob_name}?{url_prefix_token}"
 
 
@@ -142,8 +142,8 @@ if __name__ == "__main__":
 
     cookie_value = generate_signed_cookie()
 
-    url = "https://cdn.swapwithus.com/home/e16f5404-ef8a-4c0e-a698-0492aa811cfe_20251005_52cfedbc-b7d.jpg"
-    url = "https://cdn.swapwithus.com/home/eb7c5c51-d3bb-4f2f-a983-1728e615129d_20251005_8fe2a9a3-204.jpg"
+    url = "https://cdn.swapwithus.com/homes/e16f5404-ef8a-4c0e-a698-0492aa811cfe_20251005_52cfedbc-b7d.jpg"
+    url = "https://cdn.swapwithus.com/homes/eb7c5c51-d3bb-4f2f-a983-1728e615129d_20251005_8fe2a9a3-204.jpg"
 
     response = requests.get(url, cookies={"Cloud-CDN-Cookie": cookie_value})
     print(
@@ -153,7 +153,7 @@ if __name__ == "__main__":
     # signed_url = sign_cdn_url(url)
     # print(f"Signed URL: {signed_url}")
 
-    urlprefix_token = make_urlprefix_token("https://cdn.swapwithus.com/home/")
+    urlprefix_token = make_urlprefix_token("https://cdn.swapwithus.com/homes/")
     print(f"URL Prefix Token: {urlprefix_token}")
 
     full_url_with_token = append_token_to_url(url, urlprefix_token)

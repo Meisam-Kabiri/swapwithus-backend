@@ -1,20 +1,23 @@
+import logging
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
-import logging
+
 from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
-from app.models.user import UserCreate, UserUpdate
 from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
+from app.middleware.rate_limit import limiter
+from app.models.user import UserCreate, UserUpdate
 from app.services.gcp_image_service import delete_image_from_storage
-from app.middleware.rate_limit import  limiter
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-router  = APIRouter(prefix="/users", tags=["users"])
-@router.get("me")
+router = APIRouter(prefix="/users", tags=["users"])
+
+
+@router.get("/me")
 @limiter.limit("100/minute")
 async def get_my_user_data(request: Request):
     """
@@ -178,4 +181,3 @@ async def update_user(request: Request, uid: str, user: UserUpdate):
             return JSONResponse(status_code=200, content={"message": "User updated successfully"})
     except Exception as e:
         logger.error(f"Error updating user {uid}: {type(e).__name__}: {str(e)}", exc_info=True)
-

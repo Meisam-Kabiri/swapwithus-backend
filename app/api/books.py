@@ -3,6 +3,7 @@ Books API endpoints
 
 Handles CRUD operations for book listings.
 """
+
 import logging
 from typing import List
 
@@ -47,7 +48,6 @@ async def create_book_listing(
         category="books",
         table_name="books",
     )
-
 
 
 @router.get("")

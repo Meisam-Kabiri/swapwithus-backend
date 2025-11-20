@@ -1,144 +1,27 @@
+import asyncio
 import logging
 import uuid
 from typing import List
 
-from fastapi import (
-    APIRouter,
-    File,
-    Form,
-    HTTPException,
-    Request,
-    UploadFile,
-    logger,
-)
+from fastapi import (APIRouter, File, Form, HTTPException, Request, UploadFile,
+                     logger)
 from fastapi.responses import JSONResponse
-import asyncio
 
 from app.api.common import QueryBuilder
-from app.database.connection import get_pool 
-from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
+from app.database.connection import get_pool
+from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
 from app.models.home_listing import HomeListingCreate
 from app.models.image import ImageMetadataCollection
-from app.models.user import FirebaseUserUpsert, UserCreate
-from app.services.gcp_image_service import (
-    delete_image_from_storage,
-    upload_photo_to_storage,
-)
+from app.models.user import FirebaseUserUpsert
+from app.services.gcp_image_service import (delete_image_from_storage,
+                                            upload_photo_to_storage)
 from app.utils.cdn_auth import make_urlprefix_token
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 router = APIRouter(prefix="/homes", tags=["homes"])
-
-
-@router.get("/me")
-@limiter.limit("60/minute")
-async def get_my_home_listings(request: Request):
-    """
-    Get authenticated user's home listings with signed image URLs.
-
-    Returns all home listings owned by the authenticated user,
-    including images with CDN-signed URLs for secure access.
-    """
-    # Extract UID from token
-    uid = extract_firebase_user_uid(request)
-
-    query_home = """
-    SELECT * FROM homes WHERE owner_firebase_uid = $1
-    """
-
-    query_images = """
-    SELECT
-        public_url,
-        'https://cdn.swapwithus.com/home/' ||
-            split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/home/', 2) ||
-            '?' || $3 AS signed_url,
-        tag,
-        caption,
-        is_hero,
-        sort_order
-    FROM images
-    WHERE
-        owner_firebase_uid = $1
-        AND category = 'home'
-        AND listing_id = $2
-    ORDER BY sort_order;
-    """
-
-    async with get_pool().acquire() as conn:
-        try:
-            home_rows = await conn.fetch(query_home, uid)
-
-            listings = []
-            token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/home/")
-            for home_row in home_rows:
-                # Fetch images for this specific listing
-                image_rows = await conn.fetch(
-                    query_images, uid, home_row["listing_id"], token_prefix
-                )
-                image_rows = [dict(img) for img in image_rows]
-
-                # Convert home row to dict and add images
-                home_dict = dict(home_row)
-                home_dict["images"] = image_rows
-                listings.append(home_dict)
-
-            return listings
-        except Exception as e:
-            logger.error(f"Error fetching user's home listings: {e}")
-            raise HTTPException(status_code=500, detail="Failed to fetch listings")
-
-
-@router.delete("{listing_id}")
-@limiter.limit("5/hour")
-async def delete_home_listing(request: Request, listing_id: str):
-    """
-    Delete a home listing and all associated images.
-
-    Removes the listing from the database and deletes all associated images
-    from both the database and cloud storage. Only the owner can delete their listing.
-    """
-    user_uid = extract_firebase_user_uid(request)
-    # Check if listing belongs to this user
-    async with get_pool().acquire() as conn:
-        listing_owner = await conn.fetchval(
-            "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1", listing_id
-        )
-
-        if not listing_owner:
-            raise HTTPException(404, "Listing not found")
-
-        if listing_owner != user_uid:
-            raise HTTPException(403, "You don't own this listing")
-
-    query_delete_home = """
-  DELETE FROM homes WHERE listing_id = $1
-  """
-    query_select_images = """
-  SELECT public_url FROM images WHERE listing_id = $1
-  """
-
-    async with get_pool().acquire() as conn:
-        try:
-            async with conn.transaction():
-                urls = await conn.fetch(query_select_images, listing_id)
-                await conn.execute(query_delete_home, listing_id)
-                logger.info(f"Successfully deleted listing: {listing_id}")
-
-            # Delete from storage after DB transaction
-            for url in urls:
-                await delete_image_from_storage(url["public_url"])
-            logger.info(f"Successfully deleted images from storage for listing: {listing_id}")
-
-            return {
-                "message": "Listing deleted successfully with its corresponding images from image table and storage"
-            }
-        except Exception as e:
-            logger.error(f"Error deleting listing: {e}", exc_info=True)
-            raise HTTPException(status_code=500, detail="Failed to delete listing")
-
 
 @router.post("")
 @limiter.limit("15/hour")
@@ -301,6 +184,8 @@ async def create_home_listing(
         raise HTTPException(status_code=500, detail="Failed to create listing. Please try again.")
 
 
+
+
 @router.put("/{listing_id}")
 @limiter.limit("10/minute")
 async def update_home_listing(
@@ -354,7 +239,6 @@ async def update_home_listing(
         )
 
         # STEP 1: Upload NEW images FIRST (outside transaction) - IN PARALLEL
-        
 
         # Identify which images need uploading
         upload_tasks = []

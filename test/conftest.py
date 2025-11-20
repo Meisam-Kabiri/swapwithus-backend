@@ -52,33 +52,42 @@ async def create_db_pool():
 
 
 from unittest.mock import patch
+
+
 @pytest.fixture(scope="session", autouse=True)
 def mock_optimize_images():
-    with patch("app.services.gcp_image_service.optimize_image", side_effect=lambda f, max_width, quality: (f, "image/jpeg")) as mock_func:
+    with patch(
+        "app.services.gcp_image_service.optimize_image",
+        side_effect=lambda f, max_width, quality: (f, "image/jpeg"),
+    ) as mock_func:
         yield mock_func
 
 
-
 @pytest.fixture(scope="session", autouse=True)
 def fake_upload_images_to_gcp():
     """Fixture to mock GCP image upload during tests"""
-    from unittest.mock import AsyncMock
     import uuid
+    from unittest.mock import AsyncMock
 
     with patch("app.api.common.upload_photo_to_storage", new_callable=AsyncMock) as mock_upload:
         # Return unique URL each time
-        mock_upload.side_effect = lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"
+        mock_upload.side_effect = (
+            lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"
+        )
         yield mock_upload
-        
+
+
 @pytest.fixture(scope="session", autouse=True)
 def fake_upload_images_to_gcp():
     """Fixture to mock GCP image upload during tests"""
-    from unittest.mock import AsyncMock
     import uuid
+    from unittest.mock import AsyncMock
 
     with patch("app.api.common.upload_photo_to_storage", new_callable=AsyncMock) as mock_upload:
         # Return unique URL each time
-        mock_upload.side_effect = lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"
+        mock_upload.side_effect = (
+            lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"
+        )
         yield mock_upload
 
 

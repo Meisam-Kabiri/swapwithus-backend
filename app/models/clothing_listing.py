@@ -8,11 +8,7 @@ from app.models.utils import snake_to_camel
 
 
 class ClothingListingCreate(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-        extra="ignore"
-    )
+    model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True, extra="ignore")
 
     # Primary key (will be generated as UUID in backend)
     listing_id: UUID | None = None
@@ -39,7 +35,7 @@ class ClothingListingCreate(BaseModel):
         "shoes",
         "bag",
         "accessory",
-        "other"
+        "other",
     ]
     size: Annotated[str, Field(max_length=20)]  # Free text: S, M, 38, etc.
     condition: Literal["new", "like_new", "very_good", "good", "used"]
@@ -70,4 +66,5 @@ class ClothingListingCreate(BaseModel):
 
 class ClothingListingResponse(ClothingListingCreate):
     """Clothing listing with images for API responses"""
+
     images: List[ImageMetadataItem] | None = Field(default_factory=list)

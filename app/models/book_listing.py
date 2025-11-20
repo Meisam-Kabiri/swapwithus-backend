@@ -1,18 +1,14 @@
 from typing import Annotated, List, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.image import ImageMetadataItem
 from app.models.utils import snake_to_camel
 
 
 class BookListingCreate(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-        extra="ignore"
-    )
+    model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True, extra="ignore")
 
     # Primary key (will be generated as UUID in backend)
     listing_id: UUID | None = None
@@ -51,4 +47,5 @@ class BookListingCreate(BaseModel):
 
 class BookListingResponse(BookListingCreate):
     """Book listing with images for API responses"""
+
     images: List[ImageMetadataItem] | None = Field(default_factory=list)

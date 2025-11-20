@@ -9,10 +9,7 @@ from app.models.utils import snake_to_camel
 
 
 class CarDetails(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True
-    )
+    model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True)
 
     make_model_year: str | None = None
     transmission: str | None = None
@@ -26,11 +23,7 @@ class CarDetails(BaseModel):
 
 
 class HomeListingCreate(BaseModel):
-    model_config = ConfigDict(
-        alias_generator=snake_to_camel,
-        populate_by_name=True,
-        extra="ignore"
-    )
+    model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True, extra="ignore")
 
     # Primary key (will be generated as UUID in backend)
     listing_id: UUID | None = None
@@ -79,7 +72,6 @@ class HomeListingCreate(BaseModel):
     require_car_swap_match: bool = False
     car_details: CarDetails | None = None
 
-
     # Step 7:  Available Amenities
     amenities: Dict[str, Any] | None = Field(default_factory=dict)
     accessibility_features: List[str] | None = Field(default_factory=list)
@@ -100,6 +92,7 @@ class HomeListingCreate(BaseModel):
 
 class HomeListingResponse(HomeListingCreate):
     """Home listing with images for API responses"""
+
     images: List[ImageMetadataItem] | None = Field(default_factory=list)
 
 

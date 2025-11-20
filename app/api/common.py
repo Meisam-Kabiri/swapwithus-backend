@@ -4,6 +4,7 @@ Generic listing service for creating/updating/deleting listings.
 Handles all listing types: books, homes, caravans, clothes, etc.
 Reduces code duplication across different listing APIs.
 """
+
 import asyncio
 import logging
 import uuid
@@ -12,9 +13,9 @@ from typing import List
 from fastapi import HTTPException, UploadFile
 from fastapi.responses import JSONResponse
 
+from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
 from app.services.gcp_image_service import delete_image_from_storage, upload_photo_to_storage
-from app.database.connection import get_pool
 
 logger = logging.getLogger(__name__)
 
@@ -67,8 +68,7 @@ async def create_listing(
 
         # STEP 1: Upload images in parallel (outside transaction)
         upload_tasks = [
-            upload_photo_to_storage(img, listing_id=listing_id, category=category)
-            for img in images
+            upload_photo_to_storage(img, listing_id=listing_id, category=category) for img in images
         ]
 
         try:
@@ -77,20 +77,21 @@ async def create_listing(
             # Build image records for database
             image_records = []
             for i, url in enumerate(uploaded_urls):
-                image_records.append({
-                    "owner_firebase_uid": user_uid,
-                    "listing_id": listing_id,
-                    "category": category,
-                    "public_url": url,
-                    "cdn_url": url.replace(
-                        "storage.googleapis.com/swapwithus-listing-images",
-                        "cdn.swapwithus.com"
-                    ),
-                    "is_hero": i == 0,  # First image is hero
-                    "sort_order": i,
-                    "tag": None,
-                    "caption": None,
-                })
+                image_records.append(
+                    {
+                        "owner_firebase_uid": user_uid,
+                        "listing_id": listing_id,
+                        "category": category,
+                        "public_url": url,
+                        "cdn_url": url.replace(
+                            "storage.googleapis.com/swapwithus-listing-images", "cdn.swapwithus.com"
+                        ),
+                        "is_hero": i == 0,  # First image is hero
+                        "sort_order": i,
+                        "tag": None,
+                        "caption": None,
+                    }
+                )
 
             logger.info(f"Successfully uploaded {len(uploaded_urls)} images in parallel")
 
@@ -106,7 +107,6 @@ async def create_listing(
             raise HTTPException(500, "Failed to upload images")
 
         # STEP 2: Save to database in transaction
-        
 
         create_user_query = """
             INSERT INTO users (owner_firebase_uid, email, name, profile_image, created_at, updated_at)
@@ -134,7 +134,9 @@ async def create_listing(
                 )
 
                 # Create listing - build query without executing
-                insert_query, insert_values = QueryBuilder.build_insert_query(listing_data, table_name)
+                insert_query, insert_values = QueryBuilder.build_insert_query(
+                    listing_data, table_name
+                )
                 await conn.execute(insert_query, *insert_values)
 
                 # Insert image records
@@ -170,8 +172,7 @@ async def create_listing(
 
     except Exception as e:
         logger.error(
-            f"Error creating {category} listing: {type(e).__name__}: {str(e)}",
-            exc_info=True
+            f"Error creating {category} listing: {type(e).__name__}: {str(e)}", exc_info=True
         )
 
         # Clean up uploaded images if database save failed
