@@ -1,7 +1,9 @@
+import asyncio
 import io
 import logging
 import os
 import uuid
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 
 from fastapi import UploadFile
@@ -97,6 +99,30 @@ export GOOGLE_APPLICATION_CREDENTIALS="/home/me/service-account.json"
 """
 
 
+# Define the blocking operations to run in thread pool
+def _blocking_upload(file_content, bucket_name, blob_name):
+    """
+    This function contains all the BLOCKING I/O operations:
+    - PIL image processing (Image.open, resize, save)
+    - GCS upload (blob.upload_from_file)
+
+    Running in thread pool prevents blocking the event loop.
+    """
+    # Initialize GCS client (thread-safe)
+    client = storage.Client()
+    bucket = client.bucket(bucket_name)
+    blob = bucket.blob(blob_name)
+
+    # Optimize image (blocking PIL operations)
+    file_obj = io.BytesIO(file_content)
+    optimized_image, content_type = optimize_image(file_obj, max_width=1200, quality=85)
+
+    # Upload to GCS (blocking network I/O)
+    blob.upload_from_file(optimized_image, content_type=content_type, timeout=30)
+
+    return blob_name, content_type
+
+
 async def upload_photo_to_storage(
     photo: UploadFile, listing_id: str, category: str = "general"
 ) -> str:
@@ -106,8 +132,6 @@ async def upload_photo_to_storage(
     FIXED: Now runs blocking I/O (PIL image processing and GCS upload)
     in a thread pool to avoid blocking the event loop.
     """
-    import asyncio
-
     try:
         # Validate file
         if not photo.content_type or not photo.content_type.startswith("image/"):
@@ -136,32 +160,15 @@ async def upload_photo_to_storage(
         # Read file content into memory (async operation)
         file_content = await photo.read()
 
-        # Define the blocking operations to run in thread pool
-        def _blocking_upload():
-            """
-            This function contains all the BLOCKING I/O operations:
-            - PIL image processing (Image.open, resize, save)
-            - GCS upload (blob.upload_from_file)
-
-            Running in thread pool prevents blocking the event loop.
-            """
-            # Initialize GCS client (thread-safe)
-            client = storage.Client()
-            bucket = client.bucket(bucket_name)
-            blob = bucket.blob(blob_name)
-
-            # Optimize image (blocking PIL operations)
-            file_obj = io.BytesIO(file_content)
-            optimized_image, content_type = optimize_image(file_obj, max_width=1200, quality=85)
-
-            # Upload to GCS (blocking network I/O)
-            blob.upload_from_file(optimized_image, content_type=content_type, timeout=30)
-
-            return blob_name, content_type
-
         # Run blocking operations in thread pool
         loop = asyncio.get_event_loop()
-        blob_name, content_type = await loop.run_in_executor(None, _blocking_upload)
+        blob_name, content_type = await loop.run_in_executor(
+            ThreadPoolExecutor(max_workers=10),
+            _blocking_upload,
+            file_content,
+            bucket_name,
+            blob_name,
+        )
 
         # Return public URL
         public_url = f"https://storage.googleapis.com/{bucket_name}/{blob_name}"
@@ -234,13 +241,12 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
         raise Exception("Cannot generate signed URL for private image")
 
 
-async def delete_image_from_storage(public_url: str) -> bool:
+def delete_image_from_storage(public_url: str) -> bool:
     """
     Delete image from Google Cloud Storage using public URL.
 
     FIXED: Now runs blocking GCS delete operation in thread pool.
     """
-    import asyncio
 
     try:
         bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
@@ -249,24 +255,40 @@ async def delete_image_from_storage(public_url: str) -> bool:
         # Format: https://storage.googleapis.com/bucket-name/path/to/file.jpg
         blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
 
-        # Define blocking delete operation
-        def _blocking_delete():
-            """Run GCS delete in thread pool to avoid blocking event loop"""
-            client = storage.Client()
-            bucket = client.bucket(bucket_name)
-            blob = bucket.blob(blob_name)
-            blob.delete()
-            return blob_name
-
-        # Run in thread pool
-        loop = asyncio.get_event_loop()
-        deleted_blob = await loop.run_in_executor(None, _blocking_delete)
-
-        logger.info(f"Successfully deleted image: {deleted_blob}")
+        """Run GCS delete in thread pool to avoid blocking event loop"""
+        client = storage.Client()
+        bucket = client.bucket(bucket_name)
+        blob = bucket.blob(blob_name)
+        blob.delete()
+        logger.info(f"Successfully deleted image: {blob_name}")
         return True
 
     except Exception as e:
         logger.error(f"Failed to delete image from storage: {e}")
+        # Don't raise - deletion failure shouldn't block listing deletion
+        return False
+
+
+async def delete_all_images_from_storage(image_urls: list[str]) -> bool:
+    """
+    Delete multiple images from Google Cloud Storage using their public URLs.
+
+    FIXED: Now runs blocking GCS delete operation in thread pool.
+    """
+    import asyncio
+
+    try:
+        loop = asyncio.get_event_loop()
+        tasks = [
+            loop.run_in_executor(ThreadPoolExecutor(max_workers=5), delete_image_from_storage, url)
+            for url in image_urls
+            if url
+        ]
+        await asyncio.gather(*tasks)
+        return True
+
+    except Exception as e:
+        logger.error(f"Failed to delete images from storage: {e}")
         # Don't raise - deletion failure shouldn't block listing deletion
         return False
 

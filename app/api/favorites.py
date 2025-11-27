@@ -87,6 +87,7 @@ async def get_favorites(request: Request):
                     favorite["signed_url"] = append_token_to_url(
                         favorite["hero_image_url"],
                         make_urlprefix_token("https://cdn.swapwithus.com"),
+                        category="homes",
                     )
             return favorites
         except Exception as e:

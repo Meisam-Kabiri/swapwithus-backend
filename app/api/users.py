@@ -5,7 +5,8 @@ from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
-from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
+from app.middleware.auth import (extract_firebase_user_uid,
+                                 verify_user_owns_resource)
 from app.middleware.rate_limit import limiter
 from app.models.user import UserCreate, UserUpdate
 from app.services.gcp_image_service import delete_image_from_storage

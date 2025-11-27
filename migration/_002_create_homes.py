@@ -47,7 +47,7 @@ def create_homes_table_sql():
   
 
       -- Step 5: House Rules
-      house_rules JSONB NULL,
+      house_rules TEXT[] DEFAULT '{}',
       main_residence BOOLEAN NULL,
 
       -- Step 6: Transport & Car Swap
@@ -57,7 +57,7 @@ def create_homes_table_sql():
 
       -- Step 7:  Available Amenities
       amenities JSONB NULL,
-      accessibility_features JSONB NULL,
+      accessibility_features TEXT[] DEFAULT '{}',
       parking_type VARCHAR(20) NULL,
 
       -- Step 8: Availability

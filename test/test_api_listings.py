@@ -11,6 +11,7 @@ async def get_listing_id_and_owner_id(create_db_pool):
     async with create_db_pool.acquire() as conn:
         row = await conn.fetchrow("SELECT listing_id, owner_firebase_uid FROM books LIMIT 1")
         yield row["listing_id"], row["owner_firebase_uid"]
+        
 # async def test_get_all_my_listings_n(create_db_pool):
 #   with patch("app.api.listings.extract_firebase_user_uid") as mock_extract_uid:
 #     # get the first user_id from the book database

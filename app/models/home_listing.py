@@ -1,8 +1,9 @@
+import json
 from datetime import date
 from typing import Annotated, Any, Dict, List, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.image import ImageMetadataItem
 from app.models.utils import snake_to_camel
@@ -89,11 +90,26 @@ class HomeListingCreate(BaseModel):
     # Status (will default in DB)
     status: Literal["draft", "published", "archived"] | None = "draft"
 
+    # This fields are defined as JSONB in the POSTGRESQL DB, so we need to parse them if they come as strings
+    @field_validator("amenities", "car_details", mode="before")
+    @classmethod
+    def parse_json_string(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
+
 
 class HomeListingResponse(HomeListingCreate):
     """Home listing with images for API responses"""
 
     images: List[ImageMetadataItem] | None = Field(default_factory=list)
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def parse_json_string_images(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v
 
 
 #  validators for:

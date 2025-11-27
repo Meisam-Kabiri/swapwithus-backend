@@ -2,6 +2,8 @@ import os
 import subprocess
 import sys
 
+from google.cloud import storage
+
 # Override env vars to use Docker test database BEFORE any imports
 os.environ["SWAPWITHUS_DB_USER"] = "msm"
 os.environ["SWAPWITHUS_DB_PASSWORD"] = "Mk123456"
@@ -54,16 +56,17 @@ async def create_db_pool():
 from unittest.mock import patch
 
 
+# no need to mock the whole method, only we can mock the returnn using return_value= ()
 @pytest.fixture(scope="session", autouse=True)
 def mock_optimize_images():
     with patch(
         "app.services.gcp_image_service.optimize_image",
-        side_effect=lambda f, max_width, quality: (f, "image/jpeg"),
+        side_effect=lambda file_content, max_width, quality: (file_content, "image/jpeg"),
     ) as mock_func:
         yield mock_func
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session", autouse=False)
 def fake_upload_images_to_gcp():
     """Fixture to mock GCP image upload during tests"""
     import uuid
@@ -77,7 +80,7 @@ def fake_upload_images_to_gcp():
         yield mock_upload
 
 
-@pytest.fixture(scope="session", autouse=True)
+@pytest.fixture(scope="session", autouse=False)
 def fake_upload_images_to_gcp():
     """Fixture to mock GCP image upload during tests"""
     import uuid
@@ -96,3 +99,20 @@ def mock_extract_firebase_uid():
     with patch("app.api.users.extract_firebase_user_uid") as mock_verify:
         mock_verify.return_value = "test_firebase_uid_123"
         yield mock_verify
+
+
+def number_of_test_images_in_gcp() -> int:
+    # Initialize client
+    client = storage.Client()
+    bucket_name = "swapwithus-listing-images"
+    bucket = client.bucket(bucket_name)
+
+    # List all blobs in test_images folder
+    blobs = list(bucket.list_blobs(prefix="test_images/"))
+
+    print(f"Total files in test_images/: {len(blobs)}")
+    print("\nFiles:")
+    for blob in blobs:
+        print(f"  - {blob.name} ({blob.size} bytes)")
+
+    return len(blobs)

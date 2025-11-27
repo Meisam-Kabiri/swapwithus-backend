@@ -1,7 +1,8 @@
+import json
 from typing import Annotated, List, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.image import ImageMetadataItem
 from app.models.utils import snake_to_camel
@@ -61,10 +62,17 @@ class ClothingListingCreate(BaseModel):
     description: Annotated[str, Field(max_length=5000)] | None = None
 
     # Status (will default in DB)
-    status: Literal["draft", "published", "archived"] | None = "draft"
+    # status: Literal["draft", "published", "archived"] | None = "draft"
 
 
 class ClothingListingResponse(ClothingListingCreate):
     """Clothing listing with images for API responses"""
 
     images: List[ImageMetadataItem] | None = Field(default_factory=list)
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def parse_json_string_images(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v

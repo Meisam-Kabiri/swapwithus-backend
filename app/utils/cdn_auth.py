@@ -129,12 +129,12 @@ def make_urlprefix_token(
     return f"{policy}&Signature={sig_b64u}"
 
 
-def append_token_to_url(cdn_url: str, url_prefix_token: str) -> str:
+def append_token_to_url(cdn_url: str, url_prefix_token: str, category: str) -> str:
     """Append the url_prefix_token to the cdn_url."""
     # extract blob name
-    blob_name = cdn_url.split("storage.googleapis.com/swapwithus-listing-images/home/")[1]
+    blob_name = cdn_url.split(f"storage.googleapis.com/swapwithus-listing-images/{category}/")[1]
 
-    base = "https://cdn.swapwithus.com/homes/"
+    base = f"https://cdn.swapwithus.com/{category}/"
     return f"{base}{blob_name}?{url_prefix_token}"
 
 
@@ -156,5 +156,5 @@ if __name__ == "__main__":
     urlprefix_token = make_urlprefix_token("https://cdn.swapwithus.com/homes/")
     print(f"URL Prefix Token: {urlprefix_token}")
 
-    full_url_with_token = append_token_to_url(url, urlprefix_token)
+    full_url_with_token = append_token_to_url(url, urlprefix_token, category="homes")
     print(f"Full URL with Token: {full_url_with_token}")

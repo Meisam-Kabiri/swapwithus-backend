@@ -1,8 +1,9 @@
+import json
 from datetime import date
 from typing import Annotated, List, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.image import ImageMetadataItem
 from app.models.utils import snake_to_camel
@@ -93,3 +94,10 @@ class CaravanListingResponse(CaravanListingCreate):
     """Caravan listing with images for API responses"""
 
     images: List[ImageMetadataItem] | None = Field(default_factory=list)
+
+    @field_validator("images", mode="before")
+    @classmethod
+    def parse_json_string_images(cls, v):
+        if isinstance(v, str):
+            return json.loads(v)
+        return v

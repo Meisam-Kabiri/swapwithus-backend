@@ -15,7 +15,8 @@ from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
-from app.services.gcp_image_service import delete_image_from_storage, upload_photo_to_storage
+from app.services.gcp_image_service import (delete_all_images_from_storage,
+                                            upload_photo_to_storage)
 
 logger = logging.getLogger(__name__)
 
@@ -98,12 +99,8 @@ async def create_listing(
         except Exception as upload_error:
             logger.error(f"Failed to upload images: {upload_error}")
             # Clean up any successfully uploaded images
-            for url in uploaded_urls:
-                if url:
-                    try:
-                        await delete_image_from_storage(url)
-                    except Exception as cleanup_error:
-                        logger.error(f"Failed to cleanup {url}: {cleanup_error}")
+            await delete_all_images_from_storage(uploaded_urls)
+
             raise HTTPException(500, "Failed to upload images")
 
         # STEP 2: Save to database in transaction
@@ -178,10 +175,6 @@ async def create_listing(
         # Clean up uploaded images if database save failed
         if uploaded_urls:
             logger.info(f"Cleaning up {len(uploaded_urls)} uploaded images")
-            for url in uploaded_urls:
-                try:
-                    await delete_image_from_storage(url)
-                except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
+            await delete_all_images_from_storage(uploaded_urls)
 
         raise HTTPException(status_code=500, detail=f"Failed to create {category} listing")

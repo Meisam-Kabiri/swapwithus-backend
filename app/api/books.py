@@ -58,9 +58,37 @@ async def get_books(request: Request, owner_firebase_uid: str):
     pass
 
 
-@router.delete("/{listing_id}")
-@limiter.limit("5/hour")
-async def delete_book_listing(request: Request, listing_id: str):
-    """Delete a book listing and all associated images"""
-    # TODO: Implement similar to homes endpoint
-    pass
+# @router.delete("/{listing_id}")
+# @limiter.limit("5/hour")
+# async def delete_book_listing(request: Request, listing_id: str):
+#     """Delete a book listing and all associated images"""
+
+#     try:
+#       async with get_pool.acquire() as conn:
+#         async with conn.transaction():
+#             # verify ownership
+#             extract_owner_query = "SELECT owner_firebase_uid FROM books WHERE listing_id = $1"
+#             listing_owner = await conn.fetchval(extract_owner_query, listing_id)
+#             verify_user_owns_resource(request, listing_owner)
+#             # delete listings from books and images table (cascade delete)
+#             delete_listing_query = "DELETE FROM books WHERE listing_id = $1"
+#             delete_images_query = "DELETE FROM images WHERE listing_id = $1 AND category = 'books' RETURNING *"
+#             await conn.execute(delete_listing_query, listing_id)
+#             deleted_images = await conn.fetch(delete_images_query, listing_id)
+#             logger.info(f"Deleted book listing {listing_id} and associated images.")
+#             # start deleting images from GCP Storage
+#             image_urls = [record["image_url"] for record in deleted_images]
+#             #TODO: Better to use PoolExecutor in the delete_image_from_storage function itself
+#             current_loop = asyncio.get_event_loop()
+#             for url in image_urls:
+#                 current_loop.run_in_executor(ThreadPoolExecutor(max_workers=5), delete_image_from_storage, url)
+#             logger.info(f"Deleted {len(image_urls)} images from GCP Storage for listing {listing_id}.")
+#             return {"detail": "Book listing and associated images deleted successfully."}
+
+
+#     except HTTPException as http_exc:
+#       raise http_exc
+
+#     except Exception as e:
+#       logger.error(f"Error in delete book listing: {type(e).__name__}: {str(e)}", exc_info=True)
+#       HTTPException(status_code=500, detail="Failed to delete book listing. Please try again.")

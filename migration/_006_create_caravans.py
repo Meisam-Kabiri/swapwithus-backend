@@ -49,9 +49,9 @@ def create_caravans_table_sql():
       bed_layout VARCHAR(200),
       bed_count INTEGER CHECK (bed_count >= 0 AND bed_count <= 20),
 
-      -- Amenities & Features (JSONB for flexibility)
-      amenities JSONB DEFAULT '[]'::jsonb,
-      power_source JSONB DEFAULT '[]'::jsonb,
+      -- Amenities & Features 
+      amenities TEXT[] DEFAULT '{}',
+      power_source TEXT[] DEFAULT '{}',
       water_system VARCHAR(200),
       winterized BOOLEAN,
 

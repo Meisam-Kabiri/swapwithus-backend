@@ -1,5 +1,6 @@
 import json
-from test.factories import BookListingCreateFactory, UserCreateFactory, fake_uploadfile_list
+from test.factories import (BookListingCreateFactory, UserCreateFactory,
+                            fake_uploadfile_list)
 from unittest.mock import patch
 
 from httpx import ASGITransport, AsyncClient
