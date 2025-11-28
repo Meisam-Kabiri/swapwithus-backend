@@ -37,6 +37,7 @@ def create_images_table_sql():
     CREATE INDEX IF NOT EXISTS idx_images_owner ON images(owner_firebase_uid);
     CREATE INDEX IF NOT EXISTS idx_images_category_listing ON images(category, listing_id);
     CREATE INDEX IF NOT EXISTS idx_images_sort_order ON images(listing_id, sort_order);
+    
 
     """
 

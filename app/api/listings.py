@@ -16,10 +16,10 @@ from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
-from app.models.book_listing import BookListingCreate
-from app.models.caravan_listing import CaravanListingCreate
-from app.models.clothing_listing import ClothingListingCreate
-from app.models.home_listing import HomeListingCreate
+from app.models.book_listing import BookListingCreate, BookListingUpdate
+from app.models.caravan_listing import CaravanListingCreate, CaravanListingUpdate
+from app.models.clothing_listing import ClothingListingCreate, ClothingListingUpdate
+from app.models.home_listing import HomeListingCreate, HomeListingUpdate
 from app.models.image import ImageMetadataCollection
 from app.models.user import FirebaseUserUpsert
 from app.services.gcp_image_service import (delete_all_images_from_storage,
@@ -441,96 +441,281 @@ async def delete_listing(request: Request, listing_id: str, category: str):
     return {
         "message": "Listing deleted successfully with its corresponding images from image table and storage"
     }
+    
 
-
-@router.put("/{category}/{listing_id}")
-@limiter.limit("15/hour")
-async def update_listing(
+@router.patch("/{category}/{listing_id}")
+@limiter.limit("10/minute")
+async def update_home_listing(
     request: Request,
-    listing_id: str,
     category: str,
-    listing_data: str = Form(..., embed=True),
+    listing_id: str,
+    listing: str = Form(...),
     images: List[UploadFile] = File(default=[]),
 ):
     """
-    Update a listing's details.
+    Update an existing home listing.
 
-    Allows the owner to update fields of their listing.
-    The images metadata for update include a field "deleted_public_urls" which is a list of image URLs to delete.
-    Also for the new images the in the metadta the the field "public_url" is sent as ""
-    so this way we can find out which imges to remove, which is the same and which are new to add.
+    Supports updating listing details, adding new images, removing old images,
+    and modifying image metadata. Only the owner can update their listing.
     """
-    user_uid = extract_firebase_user_uid(request)
-    category = category.lower()
+    # Verify user is authenticated
     if category not in ["homes", "books", "clothes", "caravans"]:
-        raise HTTPException(400, "Invalid category provided")
-
-    listings_data = None
-    if category == "homes":
-        listing_model = HomeListingCreate.model_validate_json(listing_data)
-    elif category == "books":
-        listing_model = BookListingCreate.model_validate_json(listing_data)
-    elif category == "clothes":
-        listing_model = ClothingListingCreate.model_validate_json(listing_data)
-    elif category == "caravans":
-        listing_model = CaravanListingCreate.model_validate_json(listing_data)
-
-    listings_data = listing_model.model_dump(exclude_none=True, exclude_unset=True)
-
-    images_metadata = ImageMetadataCollection.model_validate_json(listing_data)
-    images_metadata_dict = images_metadata.model_dump()
-    list_of_metadata_items = images_metadata_dict.get("images_metadata", [])
-    list_of_deleted_urls = images_metadata_dict.get("deleted_public_urls", [])
-
-    # first upload the new images and get their urls:
-    uploaded_urls = []
-    image_index = 0
-    for m in list_of_metadata_items:
-        if m.get("public_url") == "":
-            # This is the new image
-            upload_file = images[image_index]
-            public_url = await upload_photo_to_storage(
-                photo=upload_file, listing_id=listing_id, category=category
-            )
-            uploaded_urls.append(public_url)
-            image_index += 1
+            raise HTTPException(400, "Invalid category provided")
+          
+    user_uid = extract_firebase_user_uid(request)
 
     # Check if listing belongs to this user
-
-    get_owner_id_query = f"SELECT owner_firebase_uid FROM {category} WHERE listing_id = $1"
-    query_delete_images = "DELETE FROM images WHERE public_url = $1 AND listing_id = $2"
-    # query_add_new =
     async with get_pool().acquire() as conn:
-        listing_owner = await conn.fetchval(get_owner_id_query, listing_id)
-
+        listing_owner = await conn.fetchval(
+            "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1", listing_id
+        )
+  
         if not listing_owner:
             raise HTTPException(404, "Listing not found")
+
         if listing_owner != user_uid:
             raise HTTPException(403, "You don't own this listing")
 
-        async with conn.transaction():
-            # Build update query
-            try:
+    uploaded_urls = []
+  
+    # Parse form data
+    if category.lower() == "homes":
+      listing_data = HomeListingUpdate.model_validate_json(listing)
+      listing_data_dict = listing_data.model_dump(exclude_none=True)
+    elif category.lower() == "books":
+      listing_data = BookListingUpdate.model_validate_json(listing)
+      listing_data_dict = listing_data.model_dump(exclude_none=True)
+    elif category.lower() == "clothes":
+      listing_data = ClothingListingUpdate.model_validate_json(listing)
+      listing_data_dict = listing_data.model_dump(exclude_none=True)
+    elif category.lower() == "caravans":
+      listing_data = CaravanListingUpdate.model_validate_json(listing)
+      listing_data_dict = listing_data.model_dump(exclude_none=True)
+
+    metadata_collection = ImageMetadataCollection.model_validate_json(listing)
+    metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
+    images_metadata = metadata_collection_dict["images_metadata"]
+    deleted_urls = metadata_collection_dict.get("deleted_public_urls", [])
+
+    # Validate image count
+    new_images_with_metadata = [(image_metadata_dic, images[idx]) for idx, image_metadata_dic in enumerate(images_metadata) if image_metadata_dic.get("public_url", "  ") == ""]
+    updated_metadata = [image_metadata_dic for image_metadata_dic in images_metadata if image_metadata_dic.get("public_url", "") != ""]
+    
+    new_images_count = sum(1 for m in images_metadata if m.get("public_url", "") == "")
+    if len(images) > 20:
+        raise HTTPException(400, "Maximum 20 new images allowed")
+
+    for item in new_images_with_metadata:
+        image = item[1]
+        if image.content_type not in ["image/jpeg", "image/png"]:
+            raise HTTPException(400, "Only JPEG and PNG images are allowed")
+
+        image.file.seek(0, 2)  # Move to end of file to get size
+        size = image.file.tell()
+        image.file.seek(0)  # Reset to start for future reads
+        if size > 5 * 1024 * 1024:  # 5MB limit
+            raise HTTPException(400, "Each image must be less than 5MB")
+
+    logger.info(
+        f"Updating listing {listing_id}: {new_images_count} new images, {len(deleted_urls)} to delete"
+    )
+
+    # STEP 1: Upload NEW images FIRST (outside transaction) - IN PARALLEL
+
+    # Identify which images need uploading
+    upload_tasks = []
+    upload_tasks.extend([upload_photo_to_storage(
+                    item[1], listing_id=listing_id, category=category
+                ) for item in new_images_with_metadata])
+    # new_image_indices = []
+    # for idx, metadata in enumerate(images_metadata):
+    #     if metadata.get("public_url", "") == "":
+    #         new_image_indices.append(idx)
+    #         upload_tasks.append(
+    #             upload_photo_to_storage(
+    #                 images[len(upload_tasks)], listing_id=listing_id, category="homes"
+    #             )
+    #         )
+
+    try:
+            # Upload all NEW images in parallel
+            if upload_tasks:
+                uploaded_urls = await asyncio.gather(*upload_tasks)
+                logger.info(f"Successfully uploaded {len(uploaded_urls)} new images in parallel")
+    
+    except Exception as upload_error:
+                    logger.error(f"Failed to upload images: {upload_error}")
+                    # Clean up any successfully uploaded images
+                    for url in uploaded_urls:
+                        if url:
+                            try:
+                                await delete_image_from_storage(url)
+                            except Exception as cleanup_error:
+                                logger.error(f"Failed to cleanup {url}: {cleanup_error}")
+                    raise HTTPException(500, "Failed to upload new images")
+          
+      
+    # Build image records for database
+    image_records = []
+    # appending the new images metadata to iamge_recoords to be inserted into table
+    for  metadata, public_url in zip(new_images_with_metadata, uploaded_urls):
+        image_record = metadata[0].copy()
+
+        # Set category first (needed for CDN URL construction)
+        image_record["category"] = category
+
+        # Use the uploaded URL
+        image_record["public_url"] = public_url
+
+        # Convert public URL to CDN URL for new images
+        blob_path = public_url.split("swapwithus-listing-images/")[-1]
+
+        # Build CDN URL directly (category should already be plural from frontend)
+        image_record["cdn_url"] = f"https://cdn.swapwithus.com/{blob_path}"
+
+        # Prepare record for DB
+        image_record["owner_firebase_uid"] = user_uid
+        image_record["listing_id"] = listing_id
+        image_records.append(image_record)
+    # add the updated metadatas to image_records to be upserted into table
+    for metadata in updated_metadata:
+        image_record = metadata.copy()
+        image_record["owner_firebase_uid"] = user_uid
+        image_record["listing_id"] = listing_id
+        image_record["category"] = category
+        image_records.append(image_record)
+    
+
+    # STEP 2: Update database (fast transaction, no blocking I/O)
+    insert_query = """
+        INSERT INTO images (
+            owner_firebase_uid, listing_id, category, public_url, cdn_url,
+            tag, caption, is_hero, sort_order
+        )
+        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        ON CONFLICT (public_url, listing_id) DO UPDATE SET
+            cdn_url = EXCLUDED.cdn_url,
+            tag = EXCLUDED.tag,
+            caption = EXCLUDED.caption,
+            is_hero = EXCLUDED.is_hero,
+            sort_order = EXCLUDED.sort_order,
+            updated_at = NOW()
+    """
+    try:
+        async with get_pool().acquire() as conn:
+            async with conn.transaction():
+                # Update listing data - build query without executing
                 update_query, update_values = QueryBuilder.build_update_query(
-                    data=listings_data,
-                    table_name=category,
-                    where_column="listing_id",
-                    where_value=listing_id,
+                    listing_data_dict, category, "listing_id", listing_id
                 )
-
                 await conn.execute(update_query, *update_values)
-                await conn.executemany(
-                    query_delete_images, [(url, listing_id) for url in list_of_deleted_urls]
-                )
-                logger.info(f"Successfully updated listing: {listing_id} in table: {category}")
-            except Exception as e:
-                logger.error(f"Error updating listing: {e}", exc_info=True)
-                await delete_all_images_from_storage(uploaded_urls)
-                raise HTTPException(status_code=500, detail="Failed to update listing")
-                # delete the uploaded images if update failed
 
-        # remove the images from storage
-        await delete_all_images_from_storage(list_of_deleted_urls)
+                # Delete removed images from DB
+                if deleted_urls:
+                  await conn.execute(
+                      """
+                      DELETE FROM images
+                      WHERE listing_id = $1
+                        AND public_url = ANY($2)
+                      """,
+                      listing_id,
+                      deleted_urls,
+                  )
+
+
+                # Insert/update image records
+                if image_records:
+                    image_data = [
+                        (
+                            record["owner_firebase_uid"],
+                            record["listing_id"],
+                            record["category"],
+                            record["public_url"],
+                            record.get(
+                                "cdn_url", record.get("public_url", "")
+                            ),  # Use cdn_url if available, fallback to public_url
+                            record.get("tag"),
+                            record.get("caption"),
+                            record.get("is_hero", False),
+                            record.get("sort_order", 0),
+                        )
+                        for record in image_records
+                    ]
+                    await conn.executemany(insert_query, image_data)
+    except Exception as e:
+      logger.error(f"Error updating listing in DB: {e}", exc_info=True)
+      # Clean up uploaded images on failure
+      if uploaded_urls:
+        try:
+          logger.info(f"Cleaning up {len(uploaded_urls)} uploaded images")
+          await delete_all_images_from_storage(uploaded_urls)
+        except Exception as cleanup_error:
+          logger.error(f"Failed to cleanup uploaded images: {cleanup_error}")
+      raise HTTPException(status_code=500, detail="Failed to update listing. Please try again.")
+          
+
+
+
+
+
+
+
+
+
+
+
+
+    logger.info(f"Successfully updated listing {listing_id}")
+
+    return {
+        "success": True,
+        "listing_id": listing_id,
+        "message": "Listing updated successfully",
+        "images_updated": len(image_records),
+        "images_deleted": len(deleted_urls),
+        }
+
+
+
+# TODO: Use These helper functions for the above endpoints if needed
+
+# # Helper functions
+# def parse_listing_data(category: str, listing: str):
+#     """Parse listing data based on category."""
+#     parsers = {
+#         "homes": HomeListingCreate,
+#         "books": BookListingCreate,
+#         "clothes": ClothingListingCreate,
+#         "caravans": CaravanListingCreate
+#     }
+#     return parsers[category].model_validate_json(listing)
+
+
+# def validate_images(images: List[UploadFile], metadata: list):
+#     """Validate image files."""
+#     if len(images) > 20:
+#         raise HTTPException(400, "Maximum 20 images allowed")
+    
+#     for img in images:
+#         if img.content_type not in ["image/jpeg", "image/png"]:
+#             raise HTTPException(400, "Only JPEG/PNG allowed")
+        
+#         img.file.seek(0, 2)
+#         if img.file.tell() > 5 * 1024 * 1024:
+#             raise HTTPException(400, "Image must be < 5MB")
+#         img.file.seek(0)
+
+
+# async def cleanup_uploaded_images(urls: list):
+#     """Clean up uploaded images on failure."""
+#     if not urls:
+#         return
+    
+#     try:
+#         await delete_all_images_from_storage(urls)
+#         logger.info(f"Cleaned up {len(urls)} images")
+#     except Exception as e:
+#         logger.error(f"Cleanup failed: {e}")
 
 
 # You need to create either:

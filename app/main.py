@@ -52,19 +52,11 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, custom_rate_limit_handler)
 
 # Include API routers
-from app.api.books import router as books_router
 from app.api.browse import router as browse_router
-from app.api.caravans import router as caravans_router
-from app.api.clothes import router as clothes_router
 from app.api.favorites import router as favorites_router
-from app.api.homes import router as homes_router
 from app.api.listings import router as listings_router
 from app.api.users import router as users_router
 
-app.include_router(books_router, prefix="/api")
-app.include_router(caravans_router, prefix="/api")
-app.include_router(clothes_router, prefix="/api")
-app.include_router(homes_router, prefix="/api")
 app.include_router(listings_router, prefix="/api")
 app.include_router(users_router, prefix="/api")
 app.include_router(favorites_router, prefix="/api")

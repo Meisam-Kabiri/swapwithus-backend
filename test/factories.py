@@ -13,6 +13,8 @@ from app.models.clothing_listing import ClothingListingCreate, ClothingListingRe
 from app.models.image import ImageMetadataCollection, ImageMetadataItem
 from app.models.user import UserCreate
 from uuid import uuid4
+from faker import Faker
+fake = Faker()
 
 
 class UserCreateFactory(ModelFactory[UserCreate]):
@@ -46,7 +48,53 @@ class HomeListingCreateFactory(ModelFactory[HomeListingCreate]):
     )  # max 200 chars
     name = Use(lambda: f"Test User {ModelFactory.__random__.randint(1, 999)}")  # max 100 chars
 
+class HomeListingUpdateCreateFactoryDict:
+    """Only Generate some fields for Home fileds for update testing purpose"""
+    def __init__(self):
+        self.country = fake.country()  # max 100 chars
+        self.city = fake.city()  # max 100 chars
+        self.postal_code = fake.postcode()  # max 20 chars
+        self.surroundings_type = fake.word()  # max 30 chars
+        self.title = fake.sentence(nb_words=6)  # max 200 chars
+        self.name = fake.name()  # max 100 chars
+       
+    def build_updated_data(self):
+      return {
+          "country": self.country,
+          "city": self.city,
+          "postal_code": self.postal_code,
+          "surroundings_type": self.surroundings_type,
+          "title": self.title,
+          "name": self.name
+      }
+      
 
+    def build_image_metadata(self, files_num):
+        fake_meta_data = [
+          ImageMetadataItem(caption=fake.sentence(nb_words=3), tag=fake.word(), is_hero=(i == 0), sort_order=i, public_url="", cdn_url="")
+          for i in range(files_num)]
+        return [ item.model_dump() for item in fake_meta_data]
+          
+    def build_data_form(self):
+        return {
+            "country": self.country,
+            "city": self.city,
+            "postal_code": self.postal_code,
+            "surroundings_type": self.surroundings_type,
+            "title": self.title,
+            "name": self.name
+        }
+
+
+    # Constrain fields to fit database VARCHAR limits
+    postal_code = Use(lambda: f"{ModelFactory.__random__.randint(10000, 99999)}")  # max 20 chars
+    country = Use(lambda: f"Country{ModelFactory.__random__.randint(1, 99)}")  # max 100 chars
+    city = Use(lambda: f"City{ModelFactory.__random__.randint(1, 999)}")  # max 100 chars
+    surroundings_type = Use(lambda: f"Type{ModelFactory.__random__.randint(1, 9)}")  # max 30 chars
+    title = Use(
+        lambda: f"Test Home Listing {ModelFactory.__random__.randint(1, 999)}"
+    )  # max 200 chars
+    name = Use(lambda: f"Test User {ModelFactory.__random__.randint(1, 999)}")  # max 100 chars
 class HomeListingResponseFactory(ModelFactory[HomeListingResponse]):
     """Factory for generating fake HomeListingResponse data"""
 

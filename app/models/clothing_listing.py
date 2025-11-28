@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.image import ImageMetadataItem
-from app.models.utils import snake_to_camel
+from app.models.utils import snake_to_camel, make_partial
 
 
 class ClothingListingCreate(BaseModel):
@@ -76,3 +76,8 @@ class ClothingListingResponse(ClothingListingCreate):
         if isinstance(v, str):
             return json.loads(v)
         return v
+
+
+# Create Update model with all fields optional for PATCH/PUT operations
+# This allows partial updates without requiring all mandatory fields
+ClothingListingUpdate = make_partial(ClothingListingCreate)

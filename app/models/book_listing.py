@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.image import ImageMetadataItem
-from app.models.utils import snake_to_camel
+from app.models.utils import snake_to_camel, make_partial
 
 
 class BookListingCreate(BaseModel):
@@ -57,3 +57,8 @@ class BookListingResponse(BookListingCreate):
         if isinstance(v, str):
             return json.loads(v)
         return v
+
+
+# Create Update model with all fields optional for PATCH/PUT operations
+# This allows partial updates without requiring all mandatory fields
+BookListingUpdate = make_partial(BookListingCreate)

@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.image import ImageMetadataItem
-from app.models.utils import snake_to_camel
+from app.models.utils import snake_to_camel, make_partial
 
 
 class CarDetails(BaseModel):
@@ -110,6 +110,11 @@ class HomeListingResponse(HomeListingCreate):
         if isinstance(v, str):
             return json.loads(v)
         return v
+
+
+# Create Update model with all fields optional for PATCH/PUT operations
+# This allows partial updates without requiring all mandatory fields
+HomeListingUpdate = make_partial(HomeListingCreate)
 
 
 #  validators for:
