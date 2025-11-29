@@ -11,7 +11,7 @@ async def test_real_upload_delete_images_to_gcp():
       Test real upload and deletion of images to/from GCP Storage.
       We use the same bucket as in production so be cautious, but different folder(category): "test_images".
     """
-    num_files_on_gcp_before = number_of_test_images_in_gcp()
+    num_files_on_gcp_before, _ = number_of_test_images_in_gcp()
     files = fake_uploadfile_list(1)
     uploaded_urls = []
     for file in files:

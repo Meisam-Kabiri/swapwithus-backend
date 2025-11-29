@@ -15,7 +15,7 @@ async def detele_listing_template(create_db_pool, category: str):
     )
     number_of_homelistings_before = await create_db_pool.fetchval(f"SELECT COUNT(*) FROM {category}")
     number_of_images_before_on_table = await create_db_pool.fetchval("SELECT COUNT(*) FROM images")
-    number_of_test_images_on_gcp_before = number_of_test_images_in_gcp()
+    number_of_test_images_on_gcp_before, _ = number_of_test_images_in_gcp()
     print(f"Testing deletion of home listing {listing_id}")
     with patch("app.api.listings.extract_firebase_user_uid", return_value=owner_uid):
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:

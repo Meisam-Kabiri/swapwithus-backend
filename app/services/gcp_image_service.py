@@ -255,6 +255,8 @@ def delete_image_from_storage(public_url: str) -> bool:
         # Format: https://storage.googleapis.com/bucket-name/path/to/file.jpg
         blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
 
+        logger.info(f"Attempting to delete blob: {blob_name} from bucket: {bucket_name}")
+
         """Run GCS delete in thread pool to avoid blocking event loop"""
         client = storage.Client()
         bucket = client.bucket(bucket_name)
@@ -264,7 +266,7 @@ def delete_image_from_storage(public_url: str) -> bool:
         return True
 
     except Exception as e:
-        logger.error(f"Failed to delete image from storage: {e}")
+        logger.error(f"Failed to delete image from storage (URL: {public_url}): {e}", exc_info=True)
         # Don't raise - deletion failure shouldn't block listing deletion
         return False
 
@@ -278,17 +280,31 @@ async def delete_all_images_from_storage(image_urls: list[str]) -> bool:
     import asyncio
 
     try:
+        if not image_urls:
+            return True
+
         loop = asyncio.get_event_loop()
+        executor = ThreadPoolExecutor(max_workers=5)
+
         tasks = [
-            loop.run_in_executor(ThreadPoolExecutor(max_workers=5), delete_image_from_storage, url)
+            loop.run_in_executor(executor, delete_image_from_storage, url)
             for url in image_urls
             if url
         ]
-        await asyncio.gather(*tasks)
+        results = await asyncio.gather(*tasks)
+        executor.shutdown(wait=False)
+
+        # Check if all deletions succeeded
+        all_success = all(results)
+        if not all_success:
+            failed_count = sum(1 for r in results if not r)
+            logger.warning(f"Failed to delete {failed_count} out of {len(image_urls)} images")
+            return False
+
         return True
 
     except Exception as e:
-        logger.error(f"Failed to delete images from storage: {e}")
+        logger.error(f"Failed to delete images from storage: {e}", exc_info=True)
         # Don't raise - deletion failure shouldn't block listing deletion
         return False
 

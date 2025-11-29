@@ -26,10 +26,8 @@ class UserCreateFactory(ModelFactory[UserCreate]):
     # Tell polyfactory how to generate EmailStr
     email = Use(lambda: f"user{uuid4().hex}@example.com")
 
-    # Generate realistic Firebase UID
-    owner_firebase_uid = Use(
-        lambda: f"firebase_uid_{ModelFactory.__random__.randint(100000, 999999)}"
-    )
+    # Generate realistic Firebase UID (28 chars, matching Firebase UID format)
+    owner_firebase_uid = Use(lambda: uuid4().hex[:20])
 
 
 class HomeListingCreateFactory(ModelFactory[HomeListingCreate]):
@@ -39,24 +37,22 @@ class HomeListingCreateFactory(ModelFactory[HomeListingCreate]):
     __check_model__ = False  # Suppress deprecation warning
 
     # Constrain fields to fit database VARCHAR limits
-    postal_code = Use(lambda: f"{ModelFactory.__random__.randint(10000, 99999)}")  # max 20 chars
-    country = Use(lambda: f"Country{ModelFactory.__random__.randint(1, 99)}")  # max 100 chars
-    city = Use(lambda: f"City{ModelFactory.__random__.randint(1, 999)}")  # max 100 chars
-    surroundings_type = Use(lambda: f"Type{ModelFactory.__random__.randint(1, 9)}")  # max 30 chars
-    title = Use(
-        lambda: f"Test Home Listing {ModelFactory.__random__.randint(1, 999)}"
-    )  # max 200 chars
-    name = Use(lambda: f"Test User {ModelFactory.__random__.randint(1, 999)}")  # max 100 chars
+    postal_code = Use(lambda: fake.postcode()[:20])  # max 20 chars
+    country = Use(lambda: fake.country()[:100])  # max 100 chars
+    city = Use(lambda: fake.city()[:100])  # max 100 chars
+    surroundings_type = Use(lambda: fake.word()[:30])  # max 30 chars
+    title = Use(lambda: fake.sentence(nb_words=6)[:200])  # max 200 chars
+    name = Use(lambda: fake.name()[:100])  # max 100 chars
 
 class HomeListingUpdateCreateFactoryDict:
     """Only Generate some fields for Home fileds for update testing purpose"""
     def __init__(self):
-        self.country = fake.country()  # max 100 chars
-        self.city = fake.city()  # max 100 chars
-        self.postal_code = fake.postcode()  # max 20 chars
-        self.surroundings_type = fake.word()  # max 30 chars
-        self.title = fake.sentence(nb_words=6)  # max 200 chars
-        self.name = fake.name()  # max 100 chars
+        self.country = fake.country()[:100]  # max 100 chars
+        self.city = fake.city()[:100]  # max 100 chars
+        self.postal_code = fake.postcode()[:20]  # max 20 chars
+        self.surroundings_type = fake.word()[:30]  # max 30 chars
+        self.title = fake.sentence(nb_words=6)[:200]  # max 200 chars
+        self.name = fake.name()[:100]  # max 100 chars
        
     def build_updated_data(self):
       return {
@@ -85,16 +81,6 @@ class HomeListingUpdateCreateFactoryDict:
             "name": self.name
         }
 
-
-    # Constrain fields to fit database VARCHAR limits
-    postal_code = Use(lambda: f"{ModelFactory.__random__.randint(10000, 99999)}")  # max 20 chars
-    country = Use(lambda: f"Country{ModelFactory.__random__.randint(1, 99)}")  # max 100 chars
-    city = Use(lambda: f"City{ModelFactory.__random__.randint(1, 999)}")  # max 100 chars
-    surroundings_type = Use(lambda: f"Type{ModelFactory.__random__.randint(1, 9)}")  # max 30 chars
-    title = Use(
-        lambda: f"Test Home Listing {ModelFactory.__random__.randint(1, 999)}"
-    )  # max 200 chars
-    name = Use(lambda: f"Test User {ModelFactory.__random__.randint(1, 999)}")  # max 100 chars
 class HomeListingResponseFactory(ModelFactory[HomeListingResponse]):
     """Factory for generating fake HomeListingResponse data"""
 
@@ -109,8 +95,8 @@ class BookListingCreateFactory(ModelFactory[BookListingCreate]):
     __check_model__ = False  # Suppress deprecation warning
 
     # Constrain title and author to fit VARCHAR(100)
-    title = Use(lambda: f"Book Title {ModelFactory.__random__.randint(1, 999)}")
-    author = Use(lambda: f"Author Name {ModelFactory.__random__.randint(1, 999)}")
+    title = Use(lambda: fake.sentence(nb_words=3)[:100])
+    author = Use(lambda: fake.name()[:100])
 
 
 class BookListingResponseFactory(ModelFactory[BookListingResponse]):

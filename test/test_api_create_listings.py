@@ -16,7 +16,7 @@ async def create_listing_template(create_db_pool, category: str):
 
     number_of_homelistings_before = await create_db_pool.fetchval(f"SELECT COUNT(*) FROM {category}")
     number_of_images_before_on_table = await create_db_pool.fetchval("SELECT COUNT(*) FROM images")
-    number_of_test_images_on_gcp_before = number_of_test_images_in_gcp()
+    number_of_test_images_on_gcp_before, _ = number_of_test_images_in_gcp()
 
     if category == "homes":
       listing_data = HomeListingCreateFactory.build()
@@ -73,7 +73,7 @@ async def create_listing_template(create_db_pool, category: str):
                 assert result.status_code in (200, 201)
                 number_of_homelistings_after = await create_db_pool.fetchval(f"SELECT COUNT(*) FROM {category}")
                 number_of_images_after_on_table = await create_db_pool.fetchval("SELECT COUNT(*) FROM images")
-                number_of_test_images_on_gcp_after = number_of_test_images_in_gcp()
+                number_of_test_images_on_gcp_after, _ = number_of_test_images_in_gcp()
                 assert number_of_homelistings_after == number_of_homelistings_before + 1
                 assert number_of_images_after_on_table == number_of_images_before_on_table + len(files)
                 assert number_of_test_images_on_gcp_after == number_of_test_images_on_gcp_before + len(files)

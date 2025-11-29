@@ -498,7 +498,7 @@ async def update_home_listing(
     deleted_urls = metadata_collection_dict.get("deleted_public_urls", [])
 
     # Validate image count
-    new_images_with_metadata = [(image_metadata_dic, images[idx]) for idx, image_metadata_dic in enumerate(images_metadata) if image_metadata_dic.get("public_url", "  ") == ""]
+    new_images_with_metadata = [(image_metadata_dic, images[idx]) for idx, image_metadata_dic in enumerate(images_metadata) if image_metadata_dic.get("public_url", "") == ""]
     updated_metadata = [image_metadata_dic for image_metadata_dic in images_metadata if image_metadata_dic.get("public_url", "") != ""]
     
     new_images_count = sum(1 for m in images_metadata if m.get("public_url", "") == "")
@@ -664,6 +664,19 @@ async def update_home_listing(
 
 
 
+
+    # Delete removed images from storage after successful DB transaction
+    if deleted_urls:
+        try:
+            logger.info(f"Attempting to delete {len(deleted_urls)} images from storage: {deleted_urls}")
+            deletion_success = await delete_all_images_from_storage(deleted_urls)
+            if deletion_success:
+                logger.info(f"Successfully deleted {len(deleted_urls)} images from storage")
+            else:
+                logger.warning(f"Failed to delete some or all of {len(deleted_urls)} images from storage")
+        except Exception as e:
+            logger.error(f"Error deleting images from storage: {e}", exc_info=True)
+            # Don't fail the request since DB is already updated, just log the error
 
     logger.info(f"Successfully updated listing {listing_id}")
 

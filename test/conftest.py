@@ -107,12 +107,14 @@ def number_of_test_images_in_gcp() -> int:
     bucket_name = "swapwithus-listing-images"
     bucket = client.bucket(bucket_name)
 
-    # List all blobs in test_images folder
-    blobs = list(bucket.list_blobs(prefix="test_images/"))
+    # List all blobs in test_images folder, excluding directory markers
+    all_blobs = list(bucket.list_blobs(prefix="test_images/"))
+    # Filter out directory markers (blobs ending with '/' that are empty)
+    blobs = [blob for blob in all_blobs if not (blob.name.endswith('/') and blob.size == 0)]
 
     print(f"Total files in test_images/: {len(blobs)}")
     print("\nFiles:")
     for blob in blobs:
         print(f"  - {blob.name} ({blob.size} bytes)")
 
-    return len(blobs)
+    return len(blobs), [blob.name for blob in blobs]
