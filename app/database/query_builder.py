@@ -1,15 +1,11 @@
 import json
 
+from app.constants import JSONB_FIELDS_BY_TABLE, LISTING_CATEGORIES, VALID_TABLE_NAMES
+
 
 class QueryBuilder:
-    # Define JSONB fields for each table
-    JSONB_FIELDS_BY_TABLE = {
-        "homes": {"amenities", "car_details", "images"},
-        "books": set(),  # example: no JSONB fields
-        "clothes": set(),
-        "caravans": {"details"},  # example
-        "users": set(),  # no JSONB fields
-    }
+    # Import JSONB fields from centralized constants
+    JSONB_FIELDS_BY_TABLE = JSONB_FIELDS_BY_TABLE
 
     @staticmethod
     def build_insert_query(data: dict, table_name: str) -> tuple[str, list]:
@@ -29,7 +25,7 @@ class QueryBuilder:
             await conn.execute(query, *values)
         """
         # Whitelist table names
-        if table_name not in ["homes", "users", "books", "clothes", "caravans"]:
+        if table_name not in VALID_TABLE_NAMES:
             raise ValueError(f"Invalid table: {table_name}")
 
         jsonb_fields = QueryBuilder.JSONB_FIELDS_BY_TABLE[table_name]
@@ -78,7 +74,7 @@ class QueryBuilder:
             )
             await conn.execute(query, *values)
         """
-        if table_name not in ["homes", "listings", "users", "books", "clothes", "caravans"]:
+        if table_name not in VALID_TABLE_NAMES:
             raise ValueError(f"Invalid table: {table_name}")
 
         set_clauses = []
@@ -113,7 +109,7 @@ class QueryBuilder:
         Returns:
             A SQL query string with placeholders: $1 = owner_firebase_uid, $2 = token_prefix.
         """
-        if table_name not in ["homes", "books", "clothes", "caravans"]:
+        if table_name not in LISTING_CATEGORIES:
             raise ValueError(f"Invalid table: {table_name}")
 
         if gcloud_folder_name is None:
@@ -163,7 +159,7 @@ class QueryBuilder:
         Returns:
             A SQL query string with placeholders: $1 = listing_id, $2 = token_prefix.
         """
-        if category not in ["homes", "books", "clothes", "caravans"]:
+        if category not in LISTING_CATEGORIES:
             raise ValueError(f"Invalid category: {category}")
 
         # Get singular category name (homes -> home, books -> book)

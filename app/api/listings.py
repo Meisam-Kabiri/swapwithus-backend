@@ -12,6 +12,7 @@ from typing import List
 
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
+from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
 from app.middleware.auth import extract_firebase_user_uid
@@ -117,7 +118,7 @@ async def create_listing(
     user_uid = extract_firebase_user_uid(request)
 
     category = json.loads(listing).get("category", "").lower()
-    if category not in ["homes", "books", "clothes", "caravans"]:
+    if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
 
     uploaded_urls = []
@@ -325,7 +326,7 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
     Returns the listing details including images with signed CDN URLs.
     """
     category = category.lower()
-    if category not in ["homes", "books", "clothes", "caravans"]:
+    if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
 
     try:
@@ -402,7 +403,7 @@ async def delete_listing(request: Request, listing_id: str, category: str):
 
     category = category.lower()
 
-    if category not in ["homes", "books", "clothes", "caravans"]:
+    if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
 
     async with get_pool().acquire() as conn:
@@ -458,7 +459,7 @@ async def update_home_listing(
     and modifying image metadata. Only the owner can update their listing.
     """
     # Verify user is authenticated
-    if category not in ["homes", "books", "clothes", "caravans"]:
+    if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
 
     user_uid = extract_firebase_user_uid(request)

@@ -3,6 +3,7 @@ import logging
 from async_lru import alru_cache
 from fastapi import APIRouter, HTTPException, Query, Request
 
+from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool
 from app.middleware.rate_limit import limiter
 from app.utils.cdn_auth import make_urlprefix_token
@@ -38,10 +39,10 @@ async def browse_homes(
         category = "homes"
 
     category = category.lower()
-    if category not in ["homes", "books", "clothes", "caravans"]:
+    if category not in LISTING_CATEGORIES:
         raise HTTPException(
             status_code=400,
-            detail="Invalid category. Must be one of: homes, books, clothes, caravans.",
+            detail=f"Invalid category. Must be one of: {', '.join(LISTING_CATEGORIES)}.",
         )
 
     tick = time.time()
