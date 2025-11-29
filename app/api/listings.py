@@ -23,8 +23,7 @@ from app.models.home_listing import HomeListingCreate, HomeListingUpdate
 from app.models.image import ImageMetadataCollection
 from app.models.user import FirebaseUserUpsert
 from app.services.gcp_image_service import (delete_all_images_from_storage,
-                                            delete_image_from_storage,
-                                            upload_photo_to_storage)
+                                            delete_image_from_storage, upload_photo_to_storage)
 from app.utils.cdn_auth import make_urlprefix_token
 
 logger = logging.getLogger(__name__)
@@ -120,7 +119,7 @@ async def create_listing(
     category = json.loads(listing).get("category", "").lower()
     if category not in ["homes", "books", "clothes", "caravans"]:
         raise HTTPException(400, "Invalid category provided")
-      
+
     uploaded_urls = []
     try:
         # Parse and validate input
@@ -441,7 +440,7 @@ async def delete_listing(request: Request, listing_id: str, category: str):
     return {
         "message": "Listing deleted successfully with its corresponding images from image table and storage"
     }
-    
+
 
 @router.patch("/{category}/{listing_id}")
 @limiter.limit("10/minute")
@@ -460,8 +459,8 @@ async def update_home_listing(
     """
     # Verify user is authenticated
     if category not in ["homes", "books", "clothes", "caravans"]:
-            raise HTTPException(400, "Invalid category provided")
-          
+        raise HTTPException(400, "Invalid category provided")
+
     user_uid = extract_firebase_user_uid(request)
 
     # Check if listing belongs to this user
@@ -469,7 +468,7 @@ async def update_home_listing(
         listing_owner = await conn.fetchval(
             "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1", listing_id
         )
-  
+
         if not listing_owner:
             raise HTTPException(404, "Listing not found")
 
@@ -477,20 +476,20 @@ async def update_home_listing(
             raise HTTPException(403, "You don't own this listing")
 
     uploaded_urls = []
-  
+
     # Parse form data
     if category.lower() == "homes":
-      listing_data = HomeListingUpdate.model_validate_json(listing)
-      listing_data_dict = listing_data.model_dump(exclude_none=True)
+        listing_data = HomeListingUpdate.model_validate_json(listing)
+        listing_data_dict = listing_data.model_dump(exclude_none=True)
     elif category.lower() == "books":
-      listing_data = BookListingUpdate.model_validate_json(listing)
-      listing_data_dict = listing_data.model_dump(exclude_none=True)
+        listing_data = BookListingUpdate.model_validate_json(listing)
+        listing_data_dict = listing_data.model_dump(exclude_none=True)
     elif category.lower() == "clothes":
-      listing_data = ClothingListingUpdate.model_validate_json(listing)
-      listing_data_dict = listing_data.model_dump(exclude_none=True)
+        listing_data = ClothingListingUpdate.model_validate_json(listing)
+        listing_data_dict = listing_data.model_dump(exclude_none=True)
     elif category.lower() == "caravans":
-      listing_data = CaravanListingUpdate.model_validate_json(listing)
-      listing_data_dict = listing_data.model_dump(exclude_none=True)
+        listing_data = CaravanListingUpdate.model_validate_json(listing)
+        listing_data_dict = listing_data.model_dump(exclude_none=True)
 
     metadata_collection = ImageMetadataCollection.model_validate_json(listing)
     metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
@@ -498,9 +497,17 @@ async def update_home_listing(
     deleted_urls = metadata_collection_dict.get("deleted_public_urls", [])
 
     # Validate image count
-    new_images_with_metadata = [(image_metadata_dic, images[idx]) for idx, image_metadata_dic in enumerate(images_metadata) if image_metadata_dic.get("public_url", "") == ""]
-    updated_metadata = [image_metadata_dic for image_metadata_dic in images_metadata if image_metadata_dic.get("public_url", "") != ""]
-    
+    new_images_with_metadata = [
+        (image_metadata_dic, images[idx])
+        for idx, image_metadata_dic in enumerate(images_metadata)
+        if image_metadata_dic.get("public_url", "") == ""
+    ]
+    updated_metadata = [
+        image_metadata_dic
+        for image_metadata_dic in images_metadata
+        if image_metadata_dic.get("public_url", "") != ""
+    ]
+
     new_images_count = sum(1 for m in images_metadata if m.get("public_url", "") == "")
     if len(images) > 20:
         raise HTTPException(400, "Maximum 20 new images allowed")
@@ -524,9 +531,12 @@ async def update_home_listing(
 
     # Identify which images need uploading
     upload_tasks = []
-    upload_tasks.extend([upload_photo_to_storage(
-                    item[1], listing_id=listing_id, category=category
-                ) for item in new_images_with_metadata])
+    upload_tasks.extend(
+        [
+            upload_photo_to_storage(item[1], listing_id=listing_id, category=category)
+            for item in new_images_with_metadata
+        ]
+    )
     # new_image_indices = []
     # for idx, metadata in enumerate(images_metadata):
     #     if metadata.get("public_url", "") == "":
@@ -538,27 +548,26 @@ async def update_home_listing(
     #         )
 
     try:
-            # Upload all NEW images in parallel
-            if upload_tasks:
-                uploaded_urls = await asyncio.gather(*upload_tasks)
-                logger.info(f"Successfully uploaded {len(uploaded_urls)} new images in parallel")
-    
+        # Upload all NEW images in parallel
+        if upload_tasks:
+            uploaded_urls = await asyncio.gather(*upload_tasks)
+            logger.info(f"Successfully uploaded {len(uploaded_urls)} new images in parallel")
+
     except Exception as upload_error:
-                    logger.error(f"Failed to upload images: {upload_error}")
-                    # Clean up any successfully uploaded images
-                    for url in uploaded_urls:
-                        if url:
-                            try:
-                                await delete_image_from_storage(url)
-                            except Exception as cleanup_error:
-                                logger.error(f"Failed to cleanup {url}: {cleanup_error}")
-                    raise HTTPException(500, "Failed to upload new images")
-          
-      
+        logger.error(f"Failed to upload images: {upload_error}")
+        # Clean up any successfully uploaded images
+        for url in uploaded_urls:
+            if url:
+                try:
+                    await delete_image_from_storage(url)
+                except Exception as cleanup_error:
+                    logger.error(f"Failed to cleanup {url}: {cleanup_error}")
+        raise HTTPException(500, "Failed to upload new images")
+
     # Build image records for database
     image_records = []
     # appending the new images metadata to iamge_recoords to be inserted into table
-    for  metadata, public_url in zip(new_images_with_metadata, uploaded_urls):
+    for metadata, public_url in zip(new_images_with_metadata, uploaded_urls):
         image_record = metadata[0].copy()
 
         # Set category first (needed for CDN URL construction)
@@ -584,7 +593,6 @@ async def update_home_listing(
         image_record["listing_id"] = listing_id
         image_record["category"] = category
         image_records.append(image_record)
-    
 
     # STEP 2: Update database (fast transaction, no blocking I/O)
     insert_query = """
@@ -612,16 +620,15 @@ async def update_home_listing(
 
                 # Delete removed images from DB
                 if deleted_urls:
-                  await conn.execute(
-                      """
+                    await conn.execute(
+                        """
                       DELETE FROM images
                       WHERE listing_id = $1
                         AND public_url = ANY($2)
                       """,
-                      listing_id,
-                      deleted_urls,
-                  )
-
+                        listing_id,
+                        deleted_urls,
+                    )
 
                 # Insert/update image records
                 if image_records:
@@ -643,37 +650,29 @@ async def update_home_listing(
                     ]
                     await conn.executemany(insert_query, image_data)
     except Exception as e:
-      logger.error(f"Error updating listing in DB: {e}", exc_info=True)
-      # Clean up uploaded images on failure
-      if uploaded_urls:
-        try:
-          logger.info(f"Cleaning up {len(uploaded_urls)} uploaded images")
-          await delete_all_images_from_storage(uploaded_urls)
-        except Exception as cleanup_error:
-          logger.error(f"Failed to cleanup uploaded images: {cleanup_error}")
-      raise HTTPException(status_code=500, detail="Failed to update listing. Please try again.")
-          
-
-
-
-
-
-
-
-
-
-
-
+        logger.error(f"Error updating listing in DB: {e}", exc_info=True)
+        # Clean up uploaded images on failure
+        if uploaded_urls:
+            try:
+                logger.info(f"Cleaning up {len(uploaded_urls)} uploaded images")
+                await delete_all_images_from_storage(uploaded_urls)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup uploaded images: {cleanup_error}")
+        raise HTTPException(status_code=500, detail="Failed to update listing. Please try again.")
 
     # Delete removed images from storage after successful DB transaction
     if deleted_urls:
         try:
-            logger.info(f"Attempting to delete {len(deleted_urls)} images from storage: {deleted_urls}")
+            logger.info(
+                f"Attempting to delete {len(deleted_urls)} images from storage: {deleted_urls}"
+            )
             deletion_success = await delete_all_images_from_storage(deleted_urls)
             if deletion_success:
                 logger.info(f"Successfully deleted {len(deleted_urls)} images from storage")
             else:
-                logger.warning(f"Failed to delete some or all of {len(deleted_urls)} images from storage")
+                logger.warning(
+                    f"Failed to delete some or all of {len(deleted_urls)} images from storage"
+                )
         except Exception as e:
             logger.error(f"Error deleting images from storage: {e}", exc_info=True)
             # Don't fail the request since DB is already updated, just log the error
@@ -686,8 +685,7 @@ async def update_home_listing(
         "message": "Listing updated successfully",
         "images_updated": len(image_records),
         "images_deleted": len(deleted_urls),
-        }
-
+    }
 
 
 # TODO: Use These helper functions for the above endpoints if needed
@@ -708,11 +706,11 @@ async def update_home_listing(
 #     """Validate image files."""
 #     if len(images) > 20:
 #         raise HTTPException(400, "Maximum 20 images allowed")
-    
+
 #     for img in images:
 #         if img.content_type not in ["image/jpeg", "image/png"]:
 #             raise HTTPException(400, "Only JPEG/PNG allowed")
-        
+
 #         img.file.seek(0, 2)
 #         if img.file.tell() > 5 * 1024 * 1024:
 #             raise HTTPException(400, "Image must be < 5MB")
@@ -723,7 +721,7 @@ async def update_home_listing(
 #     """Clean up uploaded images on failure."""
 #     if not urls:
 #         return
-    
+
 #     try:
 #         await delete_all_images_from_storage(urls)
 #         logger.info(f"Cleaned up {len(urls)} images")

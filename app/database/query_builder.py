@@ -8,6 +8,7 @@ class QueryBuilder:
         "books": set(),  # example: no JSONB fields
         "clothes": set(),
         "caravans": {"details"},  # example
+        "users": set(),  # no JSONB fields
     }
 
     @staticmethod

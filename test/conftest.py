@@ -1,6 +1,7 @@
 import os
 import subprocess
 import sys
+from unittest.mock import patch
 
 from google.cloud import storage
 
@@ -53,9 +54,6 @@ async def create_db_pool():
     await db_connection._db_pool.close()
 
 
-from unittest.mock import patch
-
-
 # no need to mock the whole method, only we can mock the returnn using return_value= ()
 @pytest.fixture(scope="session", autouse=True)
 def mock_optimize_images():
@@ -64,20 +62,6 @@ def mock_optimize_images():
         side_effect=lambda file_content, max_width, quality: (file_content, "image/jpeg"),
     ) as mock_func:
         yield mock_func
-
-
-@pytest.fixture(scope="session", autouse=False)
-def fake_upload_images_to_gcp():
-    """Fixture to mock GCP image upload during tests"""
-    import uuid
-    from unittest.mock import AsyncMock
-
-    with patch("app.api.common.upload_photo_to_storage", new_callable=AsyncMock) as mock_upload:
-        # Return unique URL each time
-        mock_upload.side_effect = (
-            lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"
-        )
-        yield mock_upload
 
 
 @pytest.fixture(scope="session", autouse=False)
@@ -110,7 +94,7 @@ def number_of_test_images_in_gcp() -> int:
     # List all blobs in test_images folder, excluding directory markers
     all_blobs = list(bucket.list_blobs(prefix="test_images/"))
     # Filter out directory markers (blobs ending with '/' that are empty)
-    blobs = [blob for blob in all_blobs if not (blob.name.endswith('/') and blob.size == 0)]
+    blobs = [blob for blob in all_blobs if not (blob.name.endswith("/") and blob.size == 0)]
 
     print(f"Total files in test_images/: {len(blobs)}")
     print("\nFiles:")

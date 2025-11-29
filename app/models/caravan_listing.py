@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.image import ImageMetadataItem
-from app.models.utils import snake_to_camel, make_partial
+from app.models.utils import make_partial, snake_to_camel
 
 
 class CaravanListingCreate(BaseModel):

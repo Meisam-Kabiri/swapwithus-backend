@@ -1,6 +1,7 @@
 """
 Utility functions for models
 """
+
 from pydantic import BaseModel, create_model
 
 
@@ -42,8 +43,4 @@ def make_partial(model: type[BaseModel]) -> type[BaseModel]:
     # f'{model.__name__}Update': str - Name for new class (e.g., "HomeListingCreateUpdate")
     # __config__=model.model_config: ConfigDict - Copy configuration from original model
     # **fields: dict - Unpack field definitions as keyword arguments
-    return create_model(
-        f'{model.__name__}Update',
-        __config__=model.model_config,
-        **fields
-    )
+    return create_model(f"{model.__name__}Update", __config__=model.model_config, **fields)

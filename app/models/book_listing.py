@@ -5,7 +5,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.image import ImageMetadataItem
-from app.models.utils import snake_to_camel, make_partial
+from app.models.utils import make_partial, snake_to_camel
 
 
 class BookListingCreate(BaseModel):
@@ -21,8 +21,8 @@ class BookListingCreate(BaseModel):
     # profile_image: str | None = None
 
     # Book Details (Required)
-    title: Annotated[str, Field(max_length=200, min_length=1)]
-    author: Annotated[str, Field(max_length=200, min_length=1)]
+    title: Annotated[str, Field(max_length=100, min_length=1)]
+    author: Annotated[str, Field(max_length=100, min_length=1)]
 
     # Location (Required)
     city: Annotated[str, Field(max_length=100, min_length=2)]

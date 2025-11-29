@@ -1,5 +1,7 @@
 import io
+from uuid import uuid4
 
+from faker import Faker
 from fastapi import UploadFile
 from polyfactory.factories.pydantic_factory import ModelFactory
 from polyfactory.fields import Use
@@ -7,13 +9,12 @@ from pydantic import BaseModel
 from starlette.datastructures import Headers
 
 from app.models.book_listing import BookListingCreate, BookListingResponse
-from app.models.home_listing import HomeListingCreate, HomeListingResponse
 from app.models.caravan_listing import CaravanListingCreate, CaravanListingResponse
 from app.models.clothing_listing import ClothingListingCreate, ClothingListingResponse
+from app.models.home_listing import HomeListingCreate, HomeListingResponse
 from app.models.image import ImageMetadataCollection, ImageMetadataItem
 from app.models.user import UserCreate
-from uuid import uuid4
-from faker import Faker
+
 fake = Faker()
 
 
@@ -24,7 +25,7 @@ class UserCreateFactory(ModelFactory[UserCreate]):
     __check_model__ = False  # Suppress deprecation warning
 
     # Tell polyfactory how to generate EmailStr
-    email = Use(lambda: f"user{uuid4().hex}@example.com")
+    email = Use(lambda: fake.email())
 
     # Generate realistic Firebase UID (28 chars, matching Firebase UID format)
     owner_firebase_uid = Use(lambda: uuid4().hex[:20])
@@ -36,41 +37,47 @@ class HomeListingCreateFactory(ModelFactory[HomeListingCreate]):
     __model__ = HomeListingCreate
     __check_model__ = False  # Suppress deprecation warning
 
-    # Constrain fields to fit database VARCHAR limits
-    postal_code = Use(lambda: fake.postcode()[:20])  # max 20 chars
-    country = Use(lambda: fake.country()[:100])  # max 100 chars
-    city = Use(lambda: fake.city()[:100])  # max 100 chars
-    surroundings_type = Use(lambda: fake.word()[:30])  # max 30 chars
-    title = Use(lambda: fake.sentence(nb_words=6)[:200])  # max 200 chars
-    name = Use(lambda: fake.name()[:100])  # max 100 chars
+    # Only override fields that polyfactory can't handle properly
+    email = Use(lambda: fake.email())
+    owner_firebase_uid = Use(lambda: uuid4().hex[:20])
+
 
 class HomeListingUpdateCreateFactoryDict:
-    """Only Generate some fields for Home fileds for update testing purpose"""
+    """Only Generate some fields for Home fields for update testing purpose"""
+
     def __init__(self):
-        self.country = fake.country()[:100]  # max 100 chars
-        self.city = fake.city()[:100]  # max 100 chars
-        self.postal_code = fake.postcode()[:20]  # max 20 chars
-        self.surroundings_type = fake.word()[:30]  # max 30 chars
-        self.title = fake.sentence(nb_words=6)[:200]  # max 200 chars
-        self.name = fake.name()[:100]  # max 100 chars
-       
+        # Slice to match database VARCHAR constraints (not just Pydantic)
+        self.country = fake.country()[:20]
+        self.city = fake.city()[:50]
+        self.postal_code = fake.postcode()[:20]
+        self.surroundings_type = fake.word()[:20]
+        self.title = fake.sentence(nb_words=6)[:100]
+        self.name = fake.name()[:100]
+
     def build_updated_data(self):
-      return {
-          "country": self.country,
-          "city": self.city,
-          "postal_code": self.postal_code,
-          "surroundings_type": self.surroundings_type,
-          "title": self.title,
-          "name": self.name
-      }
-      
+        return {
+            "country": self.country,
+            "city": self.city,
+            "postal_code": self.postal_code,
+            "surroundings_type": self.surroundings_type,
+            "title": self.title,
+            "name": self.name,
+        }
 
     def build_image_metadata(self, files_num):
         fake_meta_data = [
-          ImageMetadataItem(caption=fake.sentence(nb_words=3), tag=fake.word(), is_hero=(i == 0), sort_order=i, public_url="", cdn_url="")
-          for i in range(files_num)]
-        return [ item.model_dump() for item in fake_meta_data]
-          
+            ImageMetadataItem(
+                caption=fake.sentence(nb_words=3)[:200],  # Slice for safety in manual builder
+                tag=fake.word()[:100],  # Slice for safety in manual builder
+                is_hero=(i == 0),
+                sort_order=i,
+                public_url="",
+                cdn_url="",
+            )
+            for i in range(files_num)
+        ]
+        return [item.model_dump() for item in fake_meta_data]
+
     def build_data_form(self):
         return {
             "country": self.country,
@@ -78,8 +85,9 @@ class HomeListingUpdateCreateFactoryDict:
             "postal_code": self.postal_code,
             "surroundings_type": self.surroundings_type,
             "title": self.title,
-            "name": self.name
+            "name": self.name,
         }
+
 
 class HomeListingResponseFactory(ModelFactory[HomeListingResponse]):
     """Factory for generating fake HomeListingResponse data"""
@@ -94,9 +102,8 @@ class BookListingCreateFactory(ModelFactory[BookListingCreate]):
     __model__ = BookListingCreate
     __check_model__ = False  # Suppress deprecation warning
 
-    # Constrain title and author to fit VARCHAR(100)
-    title = Use(lambda: fake.sentence(nb_words=3)[:100])
-    author = Use(lambda: fake.name()[:100])
+    # Only override fields that polyfactory can't handle properly
+    owner_firebase_uid = Use(lambda: uuid4().hex[:20])
 
 
 class BookListingResponseFactory(ModelFactory[BookListingResponse]):
@@ -110,8 +117,12 @@ class CaravanListingCreateFactory(ModelFactory[CaravanListingCreate]):
     """Factory for generating fake CaravanListingCreate data"""
 
     __model__ = CaravanListingCreate
-    __check_model__ = False  # Suppress deprecation warning
-    
+    __check_model__ = False 
+
+    # Only override fields that polyfactory can't handle properly
+    owner_firebase_uid = Use(lambda: uuid4().hex[:20])
+    email = Use(lambda: fake.email())
+
 
 class CaravanListingResponseFactory(ModelFactory[CaravanListingResponse]):
     """Factory for generating fake CaravanListingResponse data"""
@@ -119,26 +130,29 @@ class CaravanListingResponseFactory(ModelFactory[CaravanListingResponse]):
     __model__ = CaravanListingResponse
     __check_model__ = False  # Suppress deprecation warning
 
+
 class ClothingListingCreateFactory(ModelFactory[ClothingListingCreate]):
     """Factory for generating fake ClothingListingCreate data"""
 
     __model__ = ClothingListingCreate
-    __check_model__ = False  # Suppress deprecation warning
-    
+    __check_model__ = False 
+
+    # Only override fields that polyfactory can't handle properly
+    owner_firebase_uid = Use(lambda: uuid4().hex[:20])
+    email = Use(lambda: fake.email())
+
+
 class ClothingListingResponseFactory(ModelFactory[ClothingListingResponse]):
     """Factory for generating fake ClothingListingResponse data"""
 
     __model__ = ClothingListingResponse
     __check_model__ = False  # Suppress deprecation warning
-    
-    
 
 
 class ImageMetadataItemFactory(ModelFactory[ImageMetadataItem]):
     """Factory for generating fake ImageMetadataItem data"""
 
     __model__ = ImageMetadataItem
-    __check_model__ = False  # Suppress deprecation warning
 
 
 class ImageMetadataCollectionFactory(ModelFactory[ImageMetadataCollection]):
@@ -160,10 +174,11 @@ class FakeFileFactory(ModelFactory[FileClass]):
     """Factory for generating fake file data for UploadFile mocking"""
 
     __model__ = FileClass
-    __check_model__ = False
+    __check_model__ = False  # Suppress deprecation warning
 
-    filename = Use(lambda: f"test_image_{ModelFactory.__random__.randint(1, 999)}.jpg")
-    content = Use(lambda: f"fake image content {ModelFactory.__random__.randint(1, 999)}".encode())
+    # Override to generate realistic image file names and content
+    filename = Use(lambda: f"test_image_{fake.random_int(min=1, max=999)}.jpg")
+    content = Use(lambda: f"fake image content {fake.random_int(min=1, max=999)}".encode())
     content_type = Use(lambda: "image/jpeg")
 
 
@@ -194,10 +209,3 @@ def fake_uploadfile_list(count: int = 3) -> list[UploadFile]:
         )
         files.append(upload_file)
     return files
-
-
-# test HomeListingResponseFactory
-import pprint
-
-obj = HomeListingResponseFactory.build()
-pprint.pprint(obj)

@@ -15,8 +15,7 @@ from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
-from app.services.gcp_image_service import (delete_all_images_from_storage,
-                                            upload_photo_to_storage)
+from app.services.gcp_image_service import delete_all_images_from_storage, upload_photo_to_storage
 
 logger = logging.getLogger(__name__)
 

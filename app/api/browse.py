@@ -1,14 +1,18 @@
-from fastapi import APIRouter, Query, Request, HTTPException
+import logging
+
 from async_lru import alru_cache
+from fastapi import APIRouter, HTTPException, Query, Request
+
 from app.database.connection import get_pool
 from app.middleware.rate_limit import limiter
 from app.utils.cdn_auth import make_urlprefix_token
-import logging
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 router = APIRouter()
+
+
 # from fastapi import Response
 @router.get("/browse")
 @limiter.limit("30/minute")
@@ -27,16 +31,18 @@ async def browse_homes(
     - Max: 100 items per page
     """
     import time
-    
+
     # for now if category is NONE, neglect it and return homes only
     print(f"category received: {category}")
     if category is None:
         category = "homes"
-        
-        
+
     category = category.lower()
     if category not in ["homes", "books", "clothes", "caravans"]:
-        raise HTTPException(status_code=400, detail="Invalid category. Must be one of: homes, books, clothes, caravans.")
+        raise HTTPException(
+            status_code=400,
+            detail="Invalid category. Must be one of: homes, books, clothes, caravans.",
+        )
 
     tick = time.time()
     try:
@@ -101,12 +107,9 @@ async def browse_homes(
             # Get paginated homes
             fetched_listings = await conn.fetch(query_listings, token_prefix, page_size, offset)
             print(f"Fetched {len(fetched_listings)} {category} from DB")
-            
 
-            import json
             import math
 
-            
             if not fetched_listings:
                 return {
                     "category": category,
@@ -121,23 +124,31 @@ async def browse_homes(
                     },
                 }
 
-      
             # Use pydantic model to return pydantic objects with camel case activated for frontend
             if category == "homes":
-              from app.models.home_listing import HomeListingResponse
-              listings = [HomeListingResponse.model_validate(dict(l)) for l in fetched_listings]
+                from app.models.home_listing import HomeListingResponse
+
+                listings = [
+                    HomeListingResponse.model_validate(dict(lst)) for lst in fetched_listings
+                ]
             elif category == "books":
-              from app.models.book_listing import BookListingResponse
-              listings = [BookListingResponse.model_validate(dict(l)) for l in fetched_listings]
+                from app.models.book_listing import BookListingResponse
+
+                listings = [
+                    BookListingResponse.model_validate(dict(lst)) for lst in fetched_listings
+                ]
             elif category == "clothes":
-              from app.models.clothing_listing import ClothingListingResponse
-              listings = [ClothingListingResponse.model_validate(dict(l)) for l in fetched_listings]
+                from app.models.clothing_listing import ClothingListingResponse
+
+                listings = [
+                    ClothingListingResponse.model_validate(dict(lst)) for lst in fetched_listings
+                ]
             elif category == "caravans":
-              from app.models.caravan_listing import CaravanListingResponse
-              listings = [CaravanListingResponse.model_validate(dict(l)) for l in fetched_listings]
-           
+                from app.models.caravan_listing import CaravanListingResponse
 
-
+                listings = [
+                    CaravanListingResponse.model_validate(dict(lst)) for lst in fetched_listings
+                ]
 
             tock = time.time()
             logger.info(f"Browse homes took {tock - tick:.2f}s - returned {len(listings)} items")
@@ -163,4 +174,3 @@ async def browse_homes(
     except Exception as e:
         logger.error(f"Error in browse homes: {type(e).__name__}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to browse homes. Please try again.")
-

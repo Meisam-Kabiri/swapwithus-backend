@@ -6,7 +6,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 from app.models.image import ImageMetadataItem
-from app.models.utils import snake_to_camel, make_partial
+from app.models.utils import make_partial, snake_to_camel
 
 
 class CarDetails(BaseModel):
@@ -53,12 +53,12 @@ class HomeListingCreate(BaseModel):
     max_guests: Annotated[int, Field(gt=0, le=50)]
     bedrooms: Annotated[int, Field(ge=0, le=50)] | None = None
     size_m2: Annotated[float, Field(gt=0, le=100000)] | None = None
-    surroundings_type: Annotated[str, Field(max_length=30)] | None = None
+    surroundings_type: Annotated[str, Field(max_length=20)] | None = None
 
     # Step 3: Location (Required: country, city; Optional: rest)
-    country: Annotated[str, Field(max_length=100, min_length=2)]
-    city: Annotated[str, Field(max_length=100, min_length=2)]
-    street_address: Annotated[str, Field(max_length=200, min_length=2)] | None = None
+    country: Annotated[str, Field(max_length=20, min_length=2)]
+    city: Annotated[str, Field(max_length=50, min_length=2)]
+    street_address: Annotated[str, Field(max_length=100, min_length=2)] | None = None
     postal_code: Annotated[str, Field(max_length=20, min_length=2)] | None = None
     latitude: Annotated[float, Field(ge=-90, le=90)] | None = None
     longitude: Annotated[float, Field(ge=-180, le=180)] | None = None
@@ -84,7 +84,7 @@ class HomeListingCreate(BaseModel):
     available_until: date | None = None
 
     # Step 9: Title and Description (Required: title; Optional: description)
-    title: Annotated[str, Field(max_length=200, min_length=5)]
+    title: Annotated[str, Field(max_length=100, min_length=5)]
     description: Annotated[str, Field(max_length=5000, min_length=10)] | None = None
 
     # Status (will default in DB)

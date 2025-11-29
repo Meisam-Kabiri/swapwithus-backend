@@ -18,3 +18,4 @@ repos:
       - id: isort
         name: isort (python)
         entry: isort
+        args: ["--line-length=100"]

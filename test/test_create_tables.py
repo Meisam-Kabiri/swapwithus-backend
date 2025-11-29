@@ -36,11 +36,14 @@ async def test_create_books_table(create_db_pool):
     async with create_db_pool.acquire() as conn:
         result = await conn.execute(create_books_table_sql())
         assert result == "CREATE INDEX"
-        
+
+
 async def test_create_caravans_table(create_db_pool):
     async with create_db_pool.acquire() as conn:
         result = await conn.execute(create_caravans_table_sql())
         assert result == "CREATE INDEX"
+
+
 async def test_create_clothes_table(create_db_pool):
     async with create_db_pool.acquire() as conn:
         result = await conn.execute(create_clothes_table_sql())
