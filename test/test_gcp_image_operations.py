@@ -1,3 +1,4 @@
+import os
 from io import BytesIO
 from test.conftest import number_of_test_images_in_gcp
 from test.factories import fake_uploadfile_list
@@ -9,10 +10,6 @@ from fastapi import UploadFile
 from app.services.gcp_image_service import (delete_all_images_from_storage, get_signed_url,
                                             upload_photo_to_storage)
 from app.utils.cdn_auth import make_urlprefix_token
-import os 
-
-
-
 
 fake_image = BytesIO(b"fake image data")
 fake_image.name = f"test_image_{uuid4().hex[:8]}.jpg"
@@ -21,7 +18,6 @@ fake_image.name = f"test_image_{uuid4().hex[:8]}.jpg"
 fake_upload_file = UploadFile(
     file=fake_image, filename=fake_image.name, headers={"content-type": "image/jpeg"}
 )
-
 
 
 async def test_real_upload_delete_images_to_gcp():
@@ -49,12 +45,12 @@ async def test_real_upload_delete_images_to_gcp():
     assert num_files_on_gcp_before == number_of_test_images_in_gcp()[0]
 
 
-
 bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
 blobs = number_of_test_images_in_gcp()
 blob_name = blobs[1][0] if blobs[0] > 0 else None
-public_url = f"https://storage.googleapis.com/{bucket_name}/"+blob_name if blob_name else None
+public_url = f"https://storage.googleapis.com/{bucket_name}/" + blob_name if blob_name else None
 print("Using public_url for tests:", public_url)
+
 
 def test_signed_url_access():
     response = requests.head(public_url, allow_redirects=True)

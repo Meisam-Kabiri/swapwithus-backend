@@ -17,10 +17,12 @@ from app.database.connection import get_pool
 from app.database.query_builder import QueryBuilder
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
-from app.models.book_listing import BookListingCreate, BookListingUpdate
-from app.models.caravan_listing import CaravanListingCreate, CaravanListingUpdate
-from app.models.clothing_listing import ClothingListingCreate, ClothingListingUpdate
-from app.models.home_listing import HomeListingCreate, HomeListingUpdate
+from app.models.book_listing import BookListingCreate, BookListingResponse, BookListingUpdate
+from app.models.caravan_listing import (CaravanListingCreate, CaravanListingResponse,
+                                        CaravanListingUpdate)
+from app.models.clothing_listing import (ClothingListingCreate, ClothingListingResponse,
+                                         ClothingListingUpdate)
+from app.models.home_listing import HomeListingCreate, HomeListingResponse, HomeListingUpdate
 from app.models.image import ImageMetadataCollection
 from app.models.user import FirebaseUserUpsert
 from app.services.gcp_image_service import (delete_all_images_from_storage,
@@ -73,23 +75,33 @@ async def get_my_all_listings(request: Request):
             fetch_category("caravans", token),
         )
 
-        def process_rows(rows):
+        def process_rows(rows, category=None):
             """Convert database rows to dicts and parse JSON images."""
             listings = []
+            listing_camelcase = None
             for row in rows:
                 listing = dict(row)
                 # Parse JSON images array if it's a string
-                if isinstance(listing.get("images"), str):
-                    listing["images"] = json.loads(listing["images"])
-                listings.append(listing)
+                if category == "homes" and isinstance(listing.get("images"), str):
+                    listing_model = HomeListingResponse.model_validate(listing)
+                elif category == "books" and isinstance(listing.get("images"), str):
+                    listing_model = BookListingResponse.model_validate(listing)
+                elif category == "clothes" and isinstance(listing.get("images"), str):
+                    listing_model = ClothingListingResponse.model_validate(listing)
+                elif category == "caravans" and isinstance(listing.get("images"), str):
+                    listing_model = CaravanListingResponse.model_validate(listing)
+
+                if listing_model:
+                    listing_camelcase = listing_model.model_dump(by_alias=True)
+                listings.append(listing_camelcase)
             return listings
 
         # Process and return grouped by category
         result = {
-            "homes": process_rows(homes),
-            "books": process_rows(books),
-            "clothes": process_rows(clothes),
-            "caravans": process_rows(caravans),
+            "homes": process_rows(homes, category="homes"),
+            "books": process_rows(books, category="books"),
+            "clothes": process_rows(clothes, category="clothes"),
+            "caravans": process_rows(caravans, category="caravans"),
             "total": len(homes) + len(books) + len(clothes) + len(caravans),
         }
 
@@ -364,21 +376,12 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
             # convert the images JSON string to list
             listing_dict = dict(listing)
             if category == "homes":
-                from app.models.home_listing import HomeListingResponse
-
                 listing = HomeListingResponse.model_validate(listing_dict)
             elif category == "books":
-                from app.models.book_listing import BookListingResponse
-
                 listing = BookListingResponse.model_validate(listing_dict)
             elif category == "clothes":
-                from app.models.clothing_listing import ClothingListingResponse
-
                 listing = ClothingListingResponse.model_validate(listing_dict)
-
             elif category == "caravans":
-                from app.models.caravan_listing import CaravanListingResponse
-
                 listing = CaravanListingResponse.model_validate(listing_dict)
 
             return listing.model_dump(by_alias=True)

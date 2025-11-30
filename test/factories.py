@@ -117,7 +117,7 @@ class CaravanListingCreateFactory(ModelFactory[CaravanListingCreate]):
     """Factory for generating fake CaravanListingCreate data"""
 
     __model__ = CaravanListingCreate
-    __check_model__ = False 
+    __check_model__ = False
 
     # Only override fields that polyfactory can't handle properly
     owner_firebase_uid = Use(lambda: uuid4().hex[:20])
@@ -135,7 +135,7 @@ class ClothingListingCreateFactory(ModelFactory[ClothingListingCreate]):
     """Factory for generating fake ClothingListingCreate data"""
 
     __model__ = ClothingListingCreate
-    __check_model__ = False 
+    __check_model__ = False
 
     # Only override fields that polyfactory can't handle properly
     owner_firebase_uid = Use(lambda: uuid4().hex[:20])
