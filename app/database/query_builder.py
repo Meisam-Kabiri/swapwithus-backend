@@ -76,11 +76,11 @@ class QueryBuilder:
         """
         if table_name not in VALID_TABLE_NAMES:
             raise ValueError(f"Invalid table: {table_name}")
-
+        jsonb_fields = QueryBuilder.JSONB_FIELDS_BY_TABLE[table_name]
         set_clauses = []
         values = []
         for i, (key, value) in enumerate(data.items()):
-            if isinstance(value, (list, dict)):
+            if key in jsonb_fields and value is not None:
                 value = json.dumps(value)
             set_clauses.append(f"{key} = ${i+1}")
             values.append(value)

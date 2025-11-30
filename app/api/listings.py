@@ -470,7 +470,7 @@ async def update_home_listing(
     # Check if listing belongs to this user
     async with get_pool().acquire() as conn:
         listing_owner = await conn.fetchval(
-            "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1", listing_id
+            f"SELECT owner_firebase_uid FROM {category} WHERE listing_id = $1", listing_id
         )
 
         if not listing_owner:
@@ -623,6 +623,7 @@ async def update_home_listing(
                 await conn.execute(update_query, *update_values)
 
                 # Delete removed images from DB
+                 
                 if deleted_urls:
                     await conn.execute(
                         """
