@@ -623,7 +623,7 @@ async def update_home_listing(
                 await conn.execute(update_query, *update_values)
 
                 # Delete removed images from DB
-                 
+
                 if deleted_urls:
                     await conn.execute(
                         """
@@ -693,7 +693,15 @@ async def update_home_listing(
     }
 
 
+# TODO: by knowin listing id, anybody can acess everyting on the table including exact address (email, name have been revmeod from homes tables for security)
+# Only owner can see full address
+# if listing.owner_id != current_user.id:
+#     # Remove sensitive fields
+#     listing.street = None
+#     listing.postal_code = None
+
 # TODO: Use These helper functions for the above endpoints if needed
+
 
 # # Helper functions
 # def parse_listing_data(category: str, listing: str):

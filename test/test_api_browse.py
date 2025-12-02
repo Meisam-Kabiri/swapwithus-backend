@@ -20,7 +20,6 @@ async def test_browse_homes_pagination(create_db_pool):
         response = await client.get("api/browse?category=homes&page=1&page_size=5")
         assert response.status_code == 200
         data = response.json()
-        print("Browse Homes Response:", data)
         assert "category" in data
         assert data["category"] == "homes"
         assert "listings" in data
@@ -46,7 +45,6 @@ async def test_one_home_listing(create_db_pool):
         response = await client.get(f"api/listings/homes/{listing_id}")
         assert response.status_code == 200
         data = response.json()
-        print("Single Home Listing Response:", data)
         assert "listingId" in data
         assert data["listingId"] == str(listing_id)
         assert "ownerFirebaseUid" in data

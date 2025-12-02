@@ -113,7 +113,7 @@ https://console.cloud.google.com/cloud-build/builds?project=swapwithus-project
 gcloud run deploy swapwithus-backend \
   --image gcr.io/swapwithus-project/swapwithus-backend \
   --platform managed \
-  --region europe-west1 \
+  --region europe-north1 \
   --allow-unauthenticated \
   --max-instances=10 \
   --memory=512Mi \
@@ -135,7 +135,7 @@ gcloud run deploy swapwithus-backend \
 
 After deployment, Cloud Run will output a URL like:
 ```
-https://swapwithus-backend-928070808987.europe-west1.run.app
+https://swapwithus-backend-928070808987.europe-north1.run.app
 ```
 
 **Copy this URL!** You'll need it for the frontend.
@@ -178,7 +178,7 @@ gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend
 gcloud run deploy swapwithus-backend \
   --image gcr.io/swapwithus-project/swapwithus-backend \
   --platform managed \
-  --region europe-west1 \
+  --region europe-north1 \
   --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db
 ```
 
@@ -191,7 +191,7 @@ If you only changed environment variables (not code):
 ```bash
 # Edit env.yaml first, then:
 gcloud run services update swapwithus-backend \
-  --region=europe-west1 \
+  --region=europe-north1 \
   --env-vars-file=env.yaml
 ```
 
@@ -203,12 +203,12 @@ gcloud run services update swapwithus-backend \
 
 ### View Logs (Console - Easiest)
 
-https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
+https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/logs?project=swapwithus-project
 
 ### View Logs (Command Line)
 
 ```bash
-gcloud run services logs tail swapwithus-backend --region=europe-west1
+gcloud run services logs tail swapwithus-backend --region=europe-north1
 ```
 
 If you get permission errors, view in console instead.
@@ -216,13 +216,13 @@ If you get permission errors, view in console instead.
 ### Check Service Status
 
 ```bash
-gcloud run services describe swapwithus-backend --region=europe-west1
+gcloud run services describe swapwithus-backend --region=europe-north1
 ```
 
 ### Get Service URL
 
 ```bash
-gcloud run services describe swapwithus-backend --region=europe-west1 --format='value(status.url)'
+gcloud run services describe swapwithus-backend --region=europe-north1 --format='value(status.url)'
 ```
 
 ### Test Endpoint
@@ -241,7 +241,7 @@ curl "https://YOUR_CLOUD_RUN_URL/api/homes?owner_firebase_uid=test"
 
 ### Issue: "Internal Server Error" on API calls
 
-**Check logs first:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
+**Check logs first:** https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/logs?project=swapwithus-project
 
 **Common causes:**
 
@@ -255,8 +255,8 @@ curl "https://YOUR_CLOUD_RUN_URL/api/homes?owner_firebase_uid=test"
    - Rebuild: `gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend`
 
 3. **Environment variables not set**
-   - Verify: `gcloud run services describe swapwithus-backend --region=europe-west1`
-   - Update: `gcloud run services update swapwithus-backend --region=europe-west1 --env-vars-file=env.yaml`
+   - Verify: `gcloud run services describe swapwithus-backend --region=europe-north1`
+   - Update: `gcloud run services update swapwithus-backend --region=europe-north1 --env-vars-file=env.yaml`
 
 4. **Python code uses service account JSON file**
    - Change `storage.Client.from_service_account_json()` to `storage.Client()`
@@ -293,7 +293,7 @@ If your PostgreSQL is on Cloud SQL (not a public IP), you need to connect differ
 ```bash
 gcloud run deploy swapwithus-backend \
   --image gcr.io/swapwithus-project/swapwithus-backend \
-  --region europe-west1 \
+  --region europe-north1 \
   --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db \
   --env-vars-file=env.yaml \
   --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com
@@ -336,7 +336,7 @@ Cloud Run pricing (as of 2025):
    ```
 
 3. **Monitor usage**:
-   https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/metrics?project=swapwithus-project
+   https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/metrics?project=swapwithus-project
 
 ---
 
@@ -352,7 +352,7 @@ Cloud Run pricing (as of 2025):
 **Add new variables to `env.yaml`, then redeploy:**
 ```bash
 gcloud run services update swapwithus-backend \
-  --region=europe-west1 \
+  --region=europe-north1 \
   --env-vars-file=env.yaml
 ```
 
@@ -389,11 +389,11 @@ If new deployment has issues:
 
 ```bash
 # List revisions
-gcloud run revisions list --service=swapwithus-backend --region=europe-west1
+gcloud run revisions list --service=swapwithus-backend --region=europe-north1
 
 # Rollback to previous revision
 gcloud run services update-traffic swapwithus-backend \
-  --region=europe-west1 \
+  --region=europe-north1 \
   --to-revisions=PREVIOUS_REVISION=100
 ```
 
@@ -408,7 +408,7 @@ gcloud run services update-traffic swapwithus-backend \
 gcloud run domain-mappings create \
   --service=swapwithus-backend \
   --domain=api.swapwithus.com \
-  --region=europe-west1
+  --region=europe-north1
 ```
 
 Then add DNS records as instructed by Google Cloud.
@@ -420,11 +420,11 @@ Then add DNS records as instructed by Google Cloud.
 | Task | Command |
 |------|---------|
 | Build image | `gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend` |
-| Deploy | `gcloud run deploy swapwithus-backend --image gcr.io/swapwithus-project/swapwithus-backend --region europe-west1 --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db --env-vars-file=env.yaml --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com` |
-| View logs (console) | https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project |
-| Get URL | `gcloud run services describe swapwithus-backend --region=europe-west1 --format='value(status.url)'` |
-| Update env vars | `gcloud run services update swapwithus-backend --region=europe-west1 --env-vars-file=env.yaml` |
-| Delete service | `gcloud run services delete swapwithus-backend --region=europe-west1` |
+| Deploy | `gcloud run deploy swapwithus-backend --image gcr.io/swapwithus-project/swapwithus-backend --region europe-north1 --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db --env-vars-file=env.yaml --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com` |
+| View logs (console) | https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/logs?project=swapwithus-project |
+| Get URL | `gcloud run services describe swapwithus-backend --region=europe-north1 --format='value(status.url)'` |
+| Update env vars | `gcloud run services update swapwithus-backend --region=europe-north1 --env-vars-file=env.yaml` |
+| Delete service | `gcloud run services delete swapwithus-backend --region=europe-north1` |
 
 ---
 
@@ -465,11 +465,11 @@ swapwithus_backend/
 
 When something doesn't work:
 
-1. **Check logs**: https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
-2. **Verify env vars**: `gcloud run services describe swapwithus-backend --region=europe-west1`
+1. **Check logs**: https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/logs?project=swapwithus-project
+2. **Verify env vars**: `gcloud run services describe swapwithus-backend --region=europe-north1`
 3. **Test endpoint**: `curl https://YOUR_URL/api/homes?owner_firebase_uid=test`
-4. **Check service status**: `gcloud run services list --region=europe-west1`
-5. **Review recent deployments**: https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/revisions?project=swapwithus-project
+4. **Check service status**: `gcloud run services list --region=europe-north1`
+5. **Review recent deployments**: https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/revisions?project=swapwithus-project
 
 ---
 
@@ -551,7 +551,7 @@ gcloud builds submit --tag gcr.io/swapwithus-project/swapwithus-backend
 gcloud run deploy swapwithus-backend \
   --image gcr.io/swapwithus-project/swapwithus-backend \
   --platform managed \
-  --region europe-west1 \
+  --region europe-north1 \
   --add-cloudsql-instances=swapwithus-project:europe-north1:swapwithus-db \
   --env-vars-file=env.yaml \
   --service-account=swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com
@@ -625,7 +625,7 @@ After deploying, check logs for successful signed URL generation. Images should 
 
 **Test:**
 ```bash
-curl "https://swapwithus-backend-928070808987.europe-west1.run.app/api/homes?owner_firebase_uid=YOUR_UID"
+curl "https://swapwithus-backend-928070808987.europe-north1.run.app/api/homes?owner_firebase_uid=YOUR_UID"
 ```
 
 Look for `hero_image_url` with a signed URL (contains query parameters like `X-Goog-Algorithm`, `X-Goog-Signature`, etc.).
@@ -675,7 +675,7 @@ The code will **ignore** these on Cloud Run and use the Unix socket instead.
 ### Test Root Endpoint
 
 ```bash
-curl https://swapwithus-backend-928070808987.europe-west1.run.app/
+curl https://swapwithus-backend-928070808987.europe-north1.run.app/
 ```
 
 Expected response: `{"detail":"Not Found"}` ✅
@@ -683,7 +683,7 @@ Expected response: `{"detail":"Not Found"}` ✅
 ### Test API Endpoint
 
 ```bash
-curl "https://swapwithus-backend-928070808987.europe-west1.run.app/api/homes?owner_firebase_uid=test"
+curl "https://swapwithus-backend-928070808987.europe-north1.run.app/api/homes?owner_firebase_uid=test"
 ```
 
 Expected response: `[]` (empty array) ✅
@@ -691,7 +691,7 @@ Expected response: `[]` (empty array) ✅
 ### Test With Real Data
 
 ```bash
-curl "https://swapwithus-backend-928070808987.europe-west1.run.app/api/homes?owner_firebase_uid=YOUR_FIREBASE_UID"
+curl "https://swapwithus-backend-928070808987.europe-north1.run.app/api/homes?owner_firebase_uid=YOUR_FIREBASE_UID"
 ```
 
 Should return your listings in JSON format.
@@ -725,16 +725,16 @@ Before going to production, verify:
 
 ## Your Deployed Backend
 
-**Service URL:** `https://swapwithus-backend-928070808987.europe-west1.run.app`
+**Service URL:** `https://swapwithus-backend-928070808987.europe-north1.run.app`
 
 **Service Name:** `swapwithus-backend`
 
-**Region:** `europe-west1`
+**Region:** `europe-north1`
 
 **Project:** `swapwithus-project`
 
 **Quick Links:**
-- **Logs:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/logs?project=swapwithus-project
-- **Metrics:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/metrics?project=swapwithus-project
-- **Revisions:** https://console.cloud.google.com/run/detail/europe-west1/swapwithus-backend/revisions?project=swapwithus-project
+- **Logs:** https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/logs?project=swapwithus-project
+- **Metrics:** https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/metrics?project=swapwithus-project
+- **Revisions:** https://console.cloud.google.com/run/detail/europe-north1/swapwithus-backend/revisions?project=swapwithus-project
 

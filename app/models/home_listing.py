@@ -3,7 +3,7 @@ from datetime import date
 from typing import Annotated, Any, Dict, List, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.models.image import ImageMetadataItem
 from app.models.utils import make_partial, snake_to_camel
@@ -31,9 +31,6 @@ class HomeListingCreate(BaseModel):
 
     # Owner (Required)
     owner_firebase_uid: str
-    email: EmailStr | None = None
-    name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
-    profile_image: str | None = None
 
     # Step 1: Property Type (Optional)
     accommodation_type: Literal["entire_place", "private_room"]

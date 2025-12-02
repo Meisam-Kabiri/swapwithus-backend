@@ -31,7 +31,14 @@ def create_users_table_sql():
       facebook_id VARCHAR(100),
 
       is_banking_verified BOOLEAN DEFAULT FALSE,
-      is_phone_verified BOOLEAN DEFAULT FALSE
+      is_phone_verified BOOLEAN DEFAULT FALSE,
+
+      -- Review and swap statistics
+      total_reviews INTEGER DEFAULT 0,
+      average_rating DECIMAL(3,2) DEFAULT 0.00,
+      total_swaps_completed INTEGER DEFAULT 0,
+      trust_score INTEGER DEFAULT 0,
+      last_swap_at TIMESTAMPTZ
   );
 
 
