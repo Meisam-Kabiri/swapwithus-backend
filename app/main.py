@@ -12,6 +12,8 @@ from app.api.browse import router as browse_router
 from app.api.favorites import router as favorites_router
 from app.api.listings import router as listings_router
 from app.api.messaging import router as messaging_router
+from app.api.reviews import router as reviews_router
+from app.api.swaps import router as swaps_router
 from app.api.users import router as users_router
 from app.database.connection import create_asyncpg_pool
 from app.middleware.rate_limit import custom_rate_limit_handler, limiter
@@ -63,6 +65,8 @@ app.include_router(users_router, prefix="/api")
 app.include_router(favorites_router, prefix="/api")
 app.include_router(browse_router, prefix="/api")
 app.include_router(messaging_router, prefix="/api")
+app.include_router(swaps_router, prefix="/api")
+app.include_router(reviews_router, prefix="/api")
 
 
 @app.get("/api/health")
