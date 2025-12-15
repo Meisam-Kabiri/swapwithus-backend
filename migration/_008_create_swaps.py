@@ -9,12 +9,14 @@ def create_swaps_table_sql():
     return """
     CREATE TABLE IF NOT EXISTS swaps (
       swap_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+      category VARCHAR(50) NOT NULL,
       created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
       updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  
 
       -- Participants (users involved in the swap)
-      user_a_uid VARCHAR(128) NOT NULL REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
-      user_b_uid VARCHAR(128) NOT NULL REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
+      user_a_uid VARCHAR(128) NOT NULL,
+      user_b_uid VARCHAR(128) NOT NULL,
 
       -- Listings being swapped
       listing_a_id UUID NOT NULL,
@@ -43,6 +45,12 @@ def create_swaps_table_sql():
       -- Cancellation details
       cancelled_by VARCHAR(128) REFERENCES users(owner_firebase_uid),
       cancellation_reason TEXT,
+      
+      user_a_deleted BOOLEAN DEFAULT FALSE,
+      user_b_deleted BOOLEAN DEFAULT FALSE,
+      listing_a_deleted BOOLEAN DEFAULT FALSE,
+      listing_b_deleted BOOLEAN DEFAULT FALSE,
+
 
       -- Check constraints
       CONSTRAINT different_users CHECK (user_a_uid != user_b_uid),

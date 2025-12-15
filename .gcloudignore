@@ -6,7 +6,8 @@ __pycache__
 env/
 venv/
 .env
-.env.local
+.env.*
+env.yaml
 *.db
 *.sqlite
 .git
@@ -15,3 +16,4 @@ README.md
 .vscode
 .idea
 *.log
+*firebase*.json

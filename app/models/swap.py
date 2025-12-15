@@ -11,6 +11,8 @@ class SwapCreate(BaseModel):
     user_b_uid: Annotated[str, Field(min_length=1, max_length=128)]
     listing_a_id: str  # UUID as string
     listing_b_id: str  # UUID as string
+    listing_a_category: Annotated[str, Field(min_length=1, max_length=50)]
+    listing_b_category: Annotated[str, Field(min_length=1, max_length=50)]
     conversation_id: str | None = None
 
 
@@ -21,34 +23,34 @@ class SwapUpdate(BaseModel):
     cancellation_reason: Annotated[str, Field(max_length=500)] | None = None
 
 
-class SwapResponse(BaseModel):
-    model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True)
+# class SwapResponse(BaseModel):
+#     model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True)
 
-    swap_id: str
-    created_at: str
-    updated_at: str
+#     swap_id: str
+#     created_at: str
+#     updated_at: str
 
-    user_a_uid: str
-    user_b_uid: str
+#     user_a_uid: str
+#     user_b_uid: str
 
-    listing_a_id: str
-    listing_b_id: str
-    listing_a_category: str | None = None
-    listing_b_category: str | None = None
+#     listing_a_id: str
+#     listing_b_id: str
+#     listing_a_category: str | None = None
+#     listing_b_category: str | None = None
 
-    status: str
-    conversation_id: str | None = None
+#     status: str
+#     conversation_id: str | None = None
 
-    user_a_confirmed: bool
-    user_b_confirmed: bool
-    completed_at: str | None = None
+#     user_a_confirmed: bool
+#     user_b_confirmed: bool
+#     completed_at: str | None = None
 
-    initiated_at: str
-    accepted_at: str | None = None
-    cancelled_at: str | None = None
+#     initiated_at: str
+#     accepted_at: str | None = None
+#     cancelled_at: str | None = None
 
-    cancelled_by: str | None = None
-    cancellation_reason: str | None = None
+#     cancelled_by: str | None = None
+#     cancellation_reason: str | None = None
 
 
 class ReviewCreate(BaseModel):

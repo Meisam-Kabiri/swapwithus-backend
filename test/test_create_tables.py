@@ -5,6 +5,8 @@ from migration._004_create_favorites import create_favorites_table_sql
 from migration._005_create_books import create_books_table_sql
 from migration._006_create_caravans import create_caravans_table_sql
 from migration._007_create_clothes import create_clothes_table_sql
+from migration._008_create_swaps import create_swaps_table_sql
+from migration._009_create_reviews import create_reviews_table_sql
 
 
 # @pytest.mark.asyncio # we can remove this cuz in the toml file we have set the marker globally to detect asyncs
@@ -50,12 +52,13 @@ async def test_create_clothes_table(create_db_pool):
         assert result == "CREATE INDEX"
 
 
-# async def test_create_caravans_table(create_db_pool):
-#     async with create_db_pool.acquire() as conn:
-#         result = await conn.execute(create_caravans_table_sql())
-#         assert result == "CREATE INDEX"
+async def test_create_swaps_table(create_db_pool):
+    async with create_db_pool.acquire() as conn:
+        result = await conn.execute(create_swaps_table_sql())
+        assert result == "CREATE INDEX"
 
-# async def test_create_clothes_table(create_db_pool):
-#     async with create_db_pool.acquire() as conn:
-#         result = await conn.execute(create_clothes_table_sql())
-#         assert result == "CREATE INDEX"
+
+async def test_create_reviews_table(create_db_pool):
+    async with create_db_pool.acquire() as conn:
+        result = await conn.execute(create_reviews_table_sql())
+        assert result == "CREATE INDEX"

@@ -7,12 +7,12 @@ from firebase_admin import credentials
 
 # Initialize Firebase Admin (only once)
 if not firebase_admin._apps:
-    # Try absolute path first (Docker), then relative path (local)
-    import os
-
-    if os.path.exists("/app/swapwithus-project-firebase-adminsdk.json"):
-        cred = credentials.Certificate("/app/swapwithus-project-firebase-adminsdk.json")
+    # Try mounted secret (Cloud Run), then local file
+    if os.path.exists("/secrets/firebase-credentials.json"):
+        # Cloud Run: Secret Manager mounted as file
+        cred = credentials.Certificate("/secrets/firebase-credentials.json")
     else:
+        # Local development
         cred = credentials.Certificate("./swapwithus-project-firebase-adminsdk.json")
     firebase_admin.initialize_app(cred)
 

@@ -12,6 +12,9 @@ os.environ["SWAPWITHUS_DATABASE_NAME"] = "swapwithusDB"
 os.environ["SWAPWITHUS_DB_HOST"] = "localhost"
 os.environ["SWAPWITHUS_DB_PORT"] = "5432"
 
+# Set Firestore emulator host BEFORE any Firebase imports
+os.environ["FIRESTORE_EMULATOR_HOST"] = "127.0.0.1:8081"
+
 import pytest
 import pytest_asyncio
 
@@ -44,6 +47,39 @@ def docker_compose():
 
     # Teardown: stop docker-compose
     subprocess.run(["docker", "compose", "down"], check=True)
+
+
+@pytest.fixture(scope="session", autouse=True)
+def firebase_emulator():
+    """Start Firebase Firestore emulator for tests (like docker_compose for PostgreSQL)"""
+    import time
+
+    print("🔥 Starting Firebase Firestore emulator...")
+
+    # Start emulator in background
+    process = subprocess.Popen(
+        ["firebase", "emulators:start", "--only", "firestore", "--project", "test-project"],
+        stdout=subprocess.PIPE,
+        stderr=subprocess.PIPE,
+    )
+
+    # Wait for emulator to be ready
+    time.sleep(3)
+
+    if process.poll() is not None:
+        # Process died, print error
+        stdout, stderr = process.communicate()
+        print(f"❌ Firebase emulator failed to start:\n{stderr.decode()}")
+        sys.exit(1)
+
+    print(f"✅ Firebase emulator running at {os.environ['FIRESTORE_EMULATOR_HOST']}")
+
+    yield  # tests run after this point
+
+    # Teardown: stop emulator
+    print("🔥 Stopping Firebase emulator...")
+    process.terminate()
+    process.wait(timeout=5)
 
 
 @pytest_asyncio.fixture(scope="function")

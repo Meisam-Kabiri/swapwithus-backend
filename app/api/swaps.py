@@ -43,14 +43,21 @@ async def create_swap(request: Request, swap: SwapCreate):
     if user_a_uid == swap.user_b_uid:
         raise HTTPException(status_code=400, detail="Cannot create swap with yourself")
 
+    # Verify both listings are from the same category
+    if swap.listing_a_category != swap.listing_b_category:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Cannot swap items from different categories. Both listings must be from the same category."
+        )
+
     swap_dict = swap.model_dump()
     swap_dict["user_a_uid"] = user_a_uid
     swap_dict["status"] = "pending"
 
     query = """
-        INSERT INTO swaps (user_a_uid, user_b_uid, listing_a_id, listing_b_id, conversation_id, status, initiated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, NOW())
-        RETURNING swap_id, created_at, updated_at, user_a_uid, user_b_uid, listing_a_id, listing_b_id,
+        INSERT INTO swaps (user_a_uid, user_b_uid, listing_a_id, listing_b_id, category, conversation_id, status, initiated_at)
+        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
+        RETURNING swap_id, created_at, updated_at, user_a_uid, user_b_uid, listing_a_id, listing_b_id, category,
                   status, conversation_id, user_a_confirmed, user_b_confirmed, initiated_at
     """
 
@@ -84,6 +91,7 @@ async def create_swap(request: Request, swap: SwapCreate):
                 swap_dict["user_b_uid"],
                 swap_dict["listing_a_id"],
                 swap_dict["listing_b_id"],
+                swap_dict["listing_a_category"],  # Since both categories are the same, use either one
                 swap_dict.get("conversation_id"),
                 "pending",
             )
@@ -115,20 +123,24 @@ async def create_swap(request: Request, swap: SwapCreate):
 @limiter.limit("100/minute")
 async def get_my_swaps(request: Request, status: str | None = None):
     """
-    Get all swaps for the current user (both as user_a and user_b).
+    Get all swaps for the current user.
     Optionally filter by status.
     """
     uid = extract_firebase_user_uid(request)
 
     query = """
         SELECT s.swap_id, s.created_at, s.updated_at, s.user_a_uid, s.user_b_uid,
-               s.listing_a_id, s.listing_b_id, s.status, s.conversation_id,
+               s.listing_a_id, s.listing_b_id, s.category, s.status, s.conversation_id,
                s.user_a_confirmed, s.user_b_confirmed, s.completed_at,
                s.initiated_at, s.accepted_at, s.cancelled_at, s.cancelled_by, s.cancellation_reason,
                CASE
                    WHEN s.user_a_uid = $1 THEN u_b.name
                    ELSE u_a.name
-               END as other_user_name
+               END as other_user_name,
+               CASE
+                   WHEN s.user_a_uid = $1 THEN u_b.profile_image
+                   ELSE u_a.profile_image
+               END as other_user_image
         FROM swaps s
         LEFT JOIN users u_a ON s.user_a_uid = u_a.owner_firebase_uid
         LEFT JOIN users u_b ON s.user_b_uid = u_b.owner_firebase_uid
@@ -150,6 +162,25 @@ async def get_my_swaps(request: Request, status: str | None = None):
             swaps = []
             for row in rows:
                 swap_dict = dict(row)
+
+                # Get listing titles from category-specific table
+                category = swap_dict["category"]
+                # Table names are just the category name (books, homes, clothes, caravans)
+                listings_table = category
+
+                listing_query = f"""
+                    SELECT listing_id, title
+                    FROM {listings_table}
+                    WHERE listing_id = $1 OR listing_id = $2
+                """
+
+                listings_rows = await conn.fetch(listing_query, swap_dict["listing_a_id"], swap_dict["listing_b_id"])
+
+                # Map listing IDs to titles
+                listing_titles = {str(row["listing_id"]): row["title"] for row in listings_rows}
+                swap_dict["listing_a_title"] = listing_titles.get(str(swap_dict["listing_a_id"]))
+                swap_dict["listing_b_title"] = listing_titles.get(str(swap_dict["listing_b_id"]))
+
                 # Convert UUID to string
                 swap_dict["swap_id"] = str(swap_dict["swap_id"])
                 swap_dict["listing_a_id"] = str(swap_dict["listing_a_id"])
@@ -174,21 +205,33 @@ async def get_swap(request: Request, swap_id: str):
     """
     Get details of a specific swap.
     User must be participant in the swap.
+    Returns swap with populated user and listing details.
     """
     uid = extract_firebase_user_uid(request)
 
-    query = """
-        SELECT swap_id, created_at, updated_at, user_a_uid, user_b_uid,
-               listing_a_id, listing_b_id, status, conversation_id,
-               user_a_confirmed, user_b_confirmed, completed_at,
-               initiated_at, accepted_at, cancelled_at, cancelled_by, cancellation_reason
-        FROM swaps
-        WHERE swap_id = $1
-    """
-
     try:
         async with get_pool().acquire() as conn:
-            swap_row = await conn.fetchrow(query, swap_id)
+            # First, get the swap with category to determine which listings table to query
+            base_query = """
+                SELECT s.swap_id, s.created_at, s.updated_at, s.user_a_uid, s.user_b_uid,
+                       s.listing_a_id, s.listing_b_id, s.category, s.status, s.conversation_id,
+                       s.user_a_confirmed, s.user_b_confirmed, s.completed_at,
+                       s.initiated_at, s.accepted_at, s.cancelled_at, s.cancelled_by, s.cancellation_reason,
+                       CASE
+                           WHEN s.user_a_uid = $2 THEN u_b.name
+                           ELSE u_a.name
+                       END as other_user_name,
+                       CASE
+                           WHEN s.user_a_uid = $2 THEN u_b.profile_image
+                           ELSE u_a.profile_image
+                       END as other_user_image
+                FROM swaps s
+                LEFT JOIN users u_a ON s.user_a_uid = u_a.owner_firebase_uid
+                LEFT JOIN users u_b ON s.user_b_uid = u_b.owner_firebase_uid
+                WHERE s.swap_id = $1
+            """
+
+            swap_row = await conn.fetchrow(base_query, swap_id, uid)
 
             if not swap_row:
                 raise HTTPException(status_code=404, detail="Swap not found")
@@ -198,6 +241,26 @@ async def get_swap(request: Request, swap_id: str):
             # Verify user is participant
             if swap_dict["user_a_uid"] != uid and swap_dict["user_b_uid"] != uid:
                 raise HTTPException(status_code=403, detail="Not authorized to view this swap")
+
+            # Get listing titles from category-specific table
+            category = swap_dict["category"]
+            # Table names are just the category name (books, homes, clothes, caravans)
+            listings_table = category
+
+            listing_query = f"""
+                SELECT listing_id, title
+                FROM {listings_table}
+                WHERE listing_id = $1 OR listing_id = $2
+            """
+
+            listings_rows = await conn.fetch(listing_query, swap_dict["listing_a_id"], swap_dict["listing_b_id"])
+
+            # Map listing IDs to titles
+            listing_titles = {str(row["listing_id"]): row["title"] for row in listings_rows}
+            swap_dict["listing_a_title"] = listing_titles.get(str(swap_dict["listing_a_id"]))
+            swap_dict["listing_b_title"] = listing_titles.get(str(swap_dict["listing_b_id"]))
+
+            # Continue with existing conversion logic
 
             # Convert UUID to string
             swap_dict["swap_id"] = str(swap_dict["swap_id"])
@@ -472,3 +535,6 @@ async def cancel_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
     except Exception as e:
         logger.error(f"Error cancelling swap {swap_id}: {type(e).__name__}: {str(e)}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to cancel swap. Please try again.")
+
+
+#TODO: IF THE REQUEST OF SWAPS IS ACCEPTED, WE SHOULD NOT ALLOW ANYMORE NEW REQUESTS FROM EITHER USER UNTIL THE CURRENT SWAP IS COMPLETED OR CANCELLED.
