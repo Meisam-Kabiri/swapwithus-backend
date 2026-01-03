@@ -2,7 +2,7 @@ from typing import Annotated
 
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
-from app.models.home_listing import snake_to_camel
+from app.models.utils import snake_to_camel
 
 
 class UserCreate(BaseModel):

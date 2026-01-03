@@ -1,4 +1,4 @@
-from typing import Annotated, Literal, Optional
+from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -9,13 +9,13 @@ class CreateConversationRequest(BaseModel):
     model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True)
 
     recipient_uid: Annotated[str, Field(min_length=1, max_length=128)]
-    requester_listing_id: Optional[str] = None
-    recipient_listing_id: Optional[str] = None
-    requester_listing_category: Optional[str] = None
-    recipient_listing_category: Optional[str] = None
+    requester_listing_id: str | None = None
+    recipient_listing_id: str | None = None
+    requester_listing_category: str | None = None
+    recipient_listing_category: str | None = None
     initial_message: Annotated[str, Field(min_length=1, max_length=2000)]
-    media_url: Optional[str] = None
-    media_type: Optional[Literal["image", "video"]] = None
+    media_url: str | None = None
+    media_type: Literal["image", "video"] | None = None
 
     @field_validator("initial_message")
     @classmethod
@@ -32,7 +32,7 @@ class CreateConversationRequest(BaseModel):
 
     @field_validator("media_url")
     @classmethod
-    def validate_firebase_url(cls, v: Optional[str]) -> Optional[str]:
+    def validate_firebase_url(cls, v: str | None) -> str | None:
         """Ensure media_url is from Firebase Storage"""
         if v is None:
             return None
@@ -44,13 +44,13 @@ class CreateConversationRequest(BaseModel):
 class SendMessageRequest(BaseModel):
     model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True)
 
-    text: Optional[str] = None
-    media_url: Optional[str] = None
-    media_type: Optional[Literal["image", "video"]] = None
+    text: str | None = None
+    media_url: str | None = None
+    media_type: Literal["image", "video"] | None = None
 
     @field_validator("text")
     @classmethod
-    def sanitize_message(cls, v: Optional[str]) -> Optional[str]:
+    def sanitize_message(cls, v: str | None) -> str | None:
         import re
 
         if v is None:
@@ -64,7 +64,7 @@ class SendMessageRequest(BaseModel):
 
     @field_validator("media_url")
     @classmethod
-    def validate_firebase_url(cls, v: Optional[str]) -> Optional[str]:
+    def validate_firebase_url(cls, v: str | None) -> str | None:
         """Ensure media_url is from Firebase Storage"""
         if v is None:
             return None
