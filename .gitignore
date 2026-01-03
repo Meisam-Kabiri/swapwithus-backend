@@ -19,6 +19,28 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-*claude*
+*.egg-info/
 
-RAHA_EXCHANGE_SECURITY_RISK_ASSESSMENT.md
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+terraform.tfvars
+.terraform.lock.hcl
+*tfplan*
+
+venv/
+env/
+bin/
+lib64/
+pyvenv.cfg
+__pycache__/
+*.pyc
+
+# Ignore all markdown files
+*.md
+
+# But keep README.md
+!README.md
