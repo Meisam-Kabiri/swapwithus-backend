@@ -4,6 +4,7 @@
 !.env.example
 *.json.env
 env.yaml
+*.log
 
 
 
@@ -31,15 +32,45 @@ terraform.tfvars
 .terraform.lock.hcl
 *tfplan*
 
+# Virtual environments
 venv/
+.venv/
 env/
+.env/
 bin/
 lib64/
 pyvenv.cfg
+
+# Python
 __pycache__/
 *.pyc
+*.pyo
+*.pyd
+.Python
 
+# IDEs
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Testing
+.pytest_cache/
+.coverage
+htmlcov/
+*.cover
+
+# Alembic
+# alembic/README
+
+*.txt
 # Ignore all markdown files
+notes/
 *.md
 
 # But keep README.md

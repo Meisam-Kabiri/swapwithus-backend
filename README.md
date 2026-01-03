@@ -9,14 +9,17 @@ Handles authentication, home listing management, image storage, and API communic
 
 ## Features
 
-- FastAPI with async I/O  
-- PostgreSQL with async connection pooling (`asyncpg`)  
-- Firebase Authentication (JWT)  
-- Google Cloud Storage integration for image uploads  
-- CDN signed URL generation for secure image access  
-- Rate limiting middleware (`slowapi`)  
-- Dockerized for deployment on Google Cloud Run  
-- Configured CORS and HTTPS support
+- FastAPI with async I/O
+- PostgreSQL with async connection pooling (`asyncpg`)
+- Firebase Authentication (JWT)
+- Firestore for real-time messaging
+- Google Cloud Storage + CDN for images
+- Rate limiting on all endpoints (Redis-backed)
+- Swap system with reviews and ratings
+- Admin dashboard and moderation tools
+- User reporting system
+- Database migrations with Alembic
+- Deployed on Google Cloud Run
 
 ---
 
@@ -30,6 +33,20 @@ Handles authentication, home listing management, image storage, and API communic
 | Auth | Firebase |
 | Cloud | Google Cloud Run, Cloud SQL, Cloud Storage |
 | Validation | Pydantic v2 |
-| DevOps | Docker, Git |
+| DevOps | Docker, Terraform, Git |
 | Caching | async-lru |
+| Messaging | Firestore |
+| Migrations | Alembic |
+| Rate Limiting | SlowAPI + Redis |
+
+---
+
+## Architecture
+
+- **Database Pool:** Stored in `app.state` for dependency injection
+- **Rate Limiting:** Per-user (authenticated) or per-IP (anonymous)
+- **Image Pipeline:** Upload → GCS → CDN with signed URLs
+- **Messaging:** Backend-validated writes to Firestore
+- **Migrations:** Alembic for schema versioning
+- **Infrastructure:** Terraform manages GCP resources (Cloud Run, SQL, Storage, CDN, IAM)
 

@@ -65,10 +65,17 @@ async def create_asyncpg_pool():
 
 
 def get_pool() -> asyncpg.Pool:
-    """Get database pool with runtime check"""
+    """Get database pool with runtime check (for scripts/migrations)"""
     if _db_pool is None:
         raise RuntimeError("Database pool not initialized")
     return _db_pool
+
+
+def get_pool_from_request(request) -> asyncpg.Pool:
+    """Get database pool from app state (preferred for API endpoints)"""
+    if not hasattr(request.app.state, 'db_pool'):
+        raise RuntimeError("Database pool not initialized in app.state")
+    return request.app.state.db_pool
 
 
 async def get_db_connection() -> asyncpg.Connection:

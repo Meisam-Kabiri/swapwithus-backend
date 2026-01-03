@@ -13,6 +13,8 @@ from app.models.caravan_listing import CaravanListingCreate, CaravanListingRespo
 from app.models.clothing_listing import ClothingListingCreate, ClothingListingResponse
 from app.models.home_listing import HomeListingCreate, HomeListingResponse
 from app.models.image import ImageMetadataCollection, ImageMetadataItem
+from app.models.message import CreateConversationRequest, SendMessageRequest, ConversationStatusUpdate
+from app.models.swap import SwapCreate, SwapUpdate
 from app.models.user import UserCreate
 
 fake = Faker()
@@ -209,3 +211,64 @@ def fake_uploadfile_list(count: int = 3) -> list[UploadFile]:
         )
         files.append(upload_file)
     return files
+
+
+class SwapCreateFactory(ModelFactory[SwapCreate]):
+    """Factory for generating fake SwapCreate data"""
+
+    __model__ = SwapCreate
+    __check_model__ = False  # Suppress deprecation warning
+
+    # Override fields that need specific formats
+    user_b_uid = Use(lambda: uuid4().hex[:20])
+    listing_a_id = Use(lambda: str(uuid4()))
+    listing_b_id = Use(lambda: str(uuid4()))
+    listing_a_category = Use(lambda: fake.random_element(elements=["homes", "books", "clothes", "caravans"]))
+    listing_b_category = Use(lambda: fake.random_element(elements=["homes", "books", "clothes", "caravans"]))
+    conversation_id = Use(lambda: uuid4().hex[:20] if fake.boolean() else None)
+
+
+class SwapUpdateFactory(ModelFactory[SwapUpdate]):
+    """Factory for generating fake SwapUpdate data"""
+
+    __model__ = SwapUpdate
+    __check_model__ = False  # Suppress deprecation warning
+
+    status = Use(lambda: fake.random_element(elements=["pending", "accepted", "completed", "cancelled"]))
+    cancellation_reason = Use(lambda: fake.sentence() if fake.boolean() else None)
+
+
+class CreateConversationRequestFactory(ModelFactory[CreateConversationRequest]):
+    """Factory for generating fake CreateConversationRequest data"""
+
+    __model__ = CreateConversationRequest
+    __check_model__ = False  # Suppress deprecation warning
+
+    recipient_uid = Use(lambda: uuid4().hex[:20])
+    requester_listing_id = Use(lambda: str(uuid4()) if fake.boolean() else None)
+    recipient_listing_id = Use(lambda: str(uuid4()) if fake.boolean() else None)
+    requester_listing_category = Use(lambda: fake.random_element(elements=["homes", "books", "clothes", "caravans"]) if fake.boolean() else None)
+    recipient_listing_category = Use(lambda: fake.random_element(elements=["homes", "books", "clothes", "caravans"]) if fake.boolean() else None)
+    initial_message = Use(lambda: fake.sentence(nb_words=10))
+    media_url = None  # Set to None by default since it needs to be a Firebase URL
+    media_type = None
+
+
+class SendMessageRequestFactory(ModelFactory[SendMessageRequest]):
+    """Factory for generating fake SendMessageRequest data"""
+
+    __model__ = SendMessageRequest
+    __check_model__ = False  # Suppress deprecation warning
+
+    text = Use(lambda: fake.sentence(nb_words=10))
+    media_url = None  # Set to None by default since it needs to be a Firebase URL
+    media_type = None
+
+
+class ConversationStatusUpdateFactory(ModelFactory[ConversationStatusUpdate]):
+    """Factory for generating fake ConversationStatusUpdate data"""
+
+    __model__ = ConversationStatusUpdate
+    __check_model__ = False  # Suppress deprecation warning
+
+    status = Use(lambda: fake.random_element(elements=["accepted", "declined"]))

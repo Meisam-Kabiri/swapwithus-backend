@@ -13,7 +13,7 @@ from typing import List
 from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
 
 from app.constants import LISTING_CATEGORIES
-from app.database.connection import get_pool
+from app.database.connection import get_pool_from_request
 from app.database.query_builder import QueryBuilder
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
@@ -58,7 +58,7 @@ async def get_my_all_listings(request: Request):
 
     async def fetch_category(category: str, token: str):
         """Fetch listings for a single category."""
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             query = QueryBuilder.build_get_listings_by_owner_id_query(category)
             logger.info(f"Fetching {category} listings for user {uid}")
             return await conn.fetch(query, uid, token)
@@ -253,7 +253,7 @@ async def create_listing(
     """
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
                 # Create user if doesn't exist
                 await conn.execute(
@@ -347,7 +347,7 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
 
         table_name = category
         gcloud_folder_name = category
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             query = f"""
               SELECT
                     l.*,
@@ -409,7 +409,7 @@ async def delete_listing(request: Request, listing_id: str, category: str):
     if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
 
-    async with get_pool().acquire() as conn:
+    async with get_pool_from_request(request).acquire() as conn:
         # Authorization - verify user owns the listing
         listing_owner = await conn.fetchval(
             f"SELECT owner_firebase_uid FROM {category} WHERE listing_id = $1", listing_id
@@ -468,7 +468,7 @@ async def update_home_listing(
     user_uid = extract_firebase_user_uid(request)
 
     # Check if listing belongs to this user
-    async with get_pool().acquire() as conn:
+    async with get_pool_from_request(request).acquire() as conn:
         listing_owner = await conn.fetchval(
             f"SELECT owner_firebase_uid FROM {category} WHERE listing_id = $1", listing_id
         )
@@ -614,7 +614,7 @@ async def update_home_listing(
             updated_at = NOW()
     """
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
                 # Update listing data - build query without executing
                 update_query, update_values = QueryBuilder.build_update_query(

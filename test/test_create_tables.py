@@ -1,12 +1,12 @@
-from migration._001_create_users import create_users_table_sql
-from migration._002_create_homes import create_homes_table_sql
-from migration._003_create_images import create_images_table_sql
-from migration._004_create_favorites import create_favorites_table_sql
-from migration._005_create_books import create_books_table_sql
-from migration._006_create_caravans import create_caravans_table_sql
-from migration._007_create_clothes import create_clothes_table_sql
-from migration._008_create_swaps import create_swaps_table_sql
-from migration._009_create_reviews import create_reviews_table_sql
+from database_schemas_manual._001_create_users import create_users_table_sql
+from database_schemas_manual._002_create_homes import create_homes_table_sql
+from database_schemas_manual._003_create_images import create_images_table_sql
+from database_schemas_manual._004_create_favorites import create_favorites_table_sql
+from database_schemas_manual._005_create_books import create_books_table_sql
+from database_schemas_manual._006_create_caravans import create_caravans_table_sql
+from database_schemas_manual._007_create_clothes import create_clothes_table_sql
+from database_schemas_manual._008_create_swaps import create_swaps_table_sql
+from database_schemas_manual._009_create_reviews import create_reviews_table_sql
 
 
 # @pytest.mark.asyncio # we can remove this cuz in the toml file we have set the marker globally to detect asyncs

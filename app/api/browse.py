@@ -4,7 +4,7 @@ from async_lru import alru_cache
 from fastapi import APIRouter, HTTPException, Query, Request
 
 from app.constants import LISTING_CATEGORIES
-from app.database.connection import get_pool
+from app.database.connection import get_pool_from_request
 from app.middleware.rate_limit import limiter
 from app.utils.cdn_auth import make_urlprefix_token
 
@@ -101,7 +101,7 @@ async def browse_homes(
         #       samesite="none"
         #   )
 
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # Get total count for pagination metadata
             total_count = await conn.fetchval(query_count)
 

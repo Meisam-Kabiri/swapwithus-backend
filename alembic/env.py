@@ -22,7 +22,9 @@ if config.config_file_name is not None:
 # target_metadata = mymodel.Base.metadata
 target_metadata = None
 
-# --- Database URL Configuration (matches app/database/connection.py) ---
+# --- Database URL Configuration (Google Cloud SQL ONLY) ---
+# For Docker Compose migrations, use migrate_docker.sh script instead
+
 # Check if running on Cloud Run (K_SERVICE env var is set by Cloud Run)
 IS_CLOUD_RUN = os.getenv("K_SERVICE") is not None
 
@@ -30,16 +32,21 @@ IS_CLOUD_RUN = os.getenv("K_SERVICE") is not None
 DB_USER = os.getenv("SWAPWITHUS_DB_USER")
 DB_PASSWORD = os.getenv("SWAPWITHUS_DB_PASSWORD")
 DB_NAME = os.getenv("SWAPWITHUS_DATABASE_NAME")
+DB_HOST = os.getenv("SWAPWITHUS_DB_HOST")  # Cloud SQL public IP
 DB_PORT = "5432"
 
 # Validate required env vars
 if not all([DB_USER, DB_PASSWORD, DB_NAME]):
-    raise ValueError("Missing required SWAPWITHUS database environment variables")
+    raise ValueError(
+        "Missing required SWAPWITHUS database environment variables.\n"
+        "This env.py is configured for Google Cloud SQL only.\n"
+        "For Docker Compose, use: ./migrate_docker.sh <command>"
+    )
 
 # URL encode password to handle special characters
 encoded_password = urllib.parse.quote_plus(DB_PASSWORD)
 
-# Build connection string based on environment
+# Build connection string based on Cloud environment
 # NOTE: Alembic uses psycopg2 (synchronous), not asyncpg (asynchronous)
 if IS_CLOUD_RUN:
     # Cloud Run: Use Unix socket for Cloud SQL Proxy
@@ -48,12 +55,15 @@ if IS_CLOUD_RUN:
     SQLALCHEMY_URL = f"postgresql+psycopg2://{DB_USER}:{encoded_password}@/{DB_NAME}?host=/cloudsql/{CLOUD_SQL_CONNECTION}"
     print("🌩️  Alembic: Cloud Run mode - Connecting via Cloud SQL Proxy")
 else:
-    # Local development: Use public IP
-    DB_HOST = os.getenv("SWAPWITHUS_DB_HOST")
+    # Cloud SQL public IP connection (for local development with Cloud SQL)
     if not DB_HOST:
-        raise ValueError("Missing SWAPWITHUS_DB_HOST for local development")
+        raise ValueError(
+            "Missing SWAPWITHUS_DB_HOST environment variable.\n"
+            "This env.py requires Cloud SQL public IP or Cloud Run.\n"
+            "For Docker Compose, use: ./migrate_docker.sh <command>"
+        )
     SQLALCHEMY_URL = f"postgresql+psycopg2://{DB_USER}:{encoded_password}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
-    print(f"💻 Alembic: Local development mode - Connecting to {DB_HOST}")
+    print(f"🌩️  Alembic: Google Cloud SQL mode - Connecting to {DB_HOST}")
 
 # Override the sqlalchemy.url in alembic.ini with our dynamic URL
 # Note: We need to escape % signs for ConfigParser by doubling them

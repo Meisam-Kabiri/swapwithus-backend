@@ -84,10 +84,18 @@ def firebase_emulator():
 
 @pytest_asyncio.fixture(scope="function")
 async def create_db_pool():
-    db_connection._db_pool = await create_asyncpg_pool()
-    yield db_connection._db_pool
+    from app.main import app
 
-    await db_connection._db_pool.close()
+    # Create pool
+    pool = await create_asyncpg_pool()
+
+    # Set in BOTH places for compatibility
+    db_connection._db_pool = pool  # For old code/migrations
+    app.state.db_pool = pool  # For API endpoints (new pattern)
+
+    yield pool
+
+    await pool.close()
 
 
 # no need to mock the whole method, only we can mock the returnn using return_value= ()
@@ -106,7 +114,7 @@ def fake_upload_images_to_gcp():
     import uuid
     from unittest.mock import AsyncMock
 
-    with patch("app.api.common.upload_photo_to_storage", new_callable=AsyncMock) as mock_upload:
+    with patch("app.services.gcp_image_service.upload_photo_to_storage", new_callable=AsyncMock) as mock_upload:
         # Return unique URL each time
         mock_upload.side_effect = (
             lambda *args, **kwargs: f"https://fake-gcp-url.com/fake_image_{uuid.uuid4().hex[:8]}.jpg"

@@ -2,7 +2,7 @@ import logging
 
 from fastapi import APIRouter, HTTPException, Request
 
-from app.database.connection import get_pool
+from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
 from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
@@ -27,7 +27,7 @@ async def remove_favorite(request: Request, listing_id: str):
   DELETE FROM favorites
   WHERE owner_firebase_uid = $1 AND listing_id = $2
   """
-    async with get_pool().acquire() as conn:
+    async with get_pool_from_request(request).acquire() as conn:
         try:
             await conn.execute(remove_favorite_query, user_id, listing_id)
             return {"message": "Listing removed from favorites"}
@@ -53,7 +53,7 @@ async def add_favorite(request: Request):
   Values ($1, $2, NOW())
   ON CONFLICT (owner_firebase_uid, listing_id) DO NOTHING
   """
-    async with get_pool().acquire() as conn:
+    async with get_pool_from_request(request).acquire() as conn:
         try:
             await conn.execute(add_favorite_query, user_id, listing_id)
             return {"message": "Listing added to favorites"}
@@ -78,7 +78,7 @@ async def get_favorites(request: Request):
     LEFT JOIN images i ON h.listing_id = i.listing_id AND i.is_hero = TRUE
     WHERE f.owner_firebase_uid = $1
     """
-    async with get_pool().acquire() as conn:
+    async with get_pool_from_request(request).acquire() as conn:
         try:
             favorite_rows = await conn.fetch(get_favorites_query, user_id)
             favorites = [dict(row) for row in favorite_rows]

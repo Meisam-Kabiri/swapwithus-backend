@@ -11,6 +11,8 @@ class CreateConversationRequest(BaseModel):
     recipient_uid: Annotated[str, Field(min_length=1, max_length=128)]
     requester_listing_id: Optional[str] = None
     recipient_listing_id: Optional[str] = None
+    requester_listing_category: Optional[str] = None
+    recipient_listing_category: Optional[str] = None
     initial_message: Annotated[str, Field(min_length=1, max_length=2000)]
     media_url: Optional[str] = None
     media_type: Optional[Literal["image", "video"]] = None

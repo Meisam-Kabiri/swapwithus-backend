@@ -97,14 +97,17 @@ async def create_conversation(request: Request, data: CreateConversationRequest)
         raise HTTPException(status_code=400, detail="Cannot message yourself")
 
     try:
-        # Check if conversation already exists between these two users
+        # Check if conversation already exists for this specific listing pair
         conversations_ref = db.collection("conversations")
         existing = conversations_ref.where("participants", "array_contains", requester_uid).stream()
 
         existing_conv_id = None
         for conv in existing:
             conv_data = conv.to_dict()
-            if data.recipient_uid in conv_data.get("participants", []):
+            # Check if same participants AND same listing pair
+            if (data.recipient_uid in conv_data.get("participants", []) and
+                conv_data.get("requester_listing_id") == data.requester_listing_id and
+                conv_data.get("recipient_listing_id") == data.recipient_listing_id):
                 existing_conv_id = conv.id
                 break
 
@@ -173,6 +176,10 @@ async def create_conversation(request: Request, data: CreateConversationRequest)
             conversation_data["requester_listing_id"] = data.requester_listing_id
         if data.recipient_listing_id:
             conversation_data["recipient_listing_id"] = data.recipient_listing_id
+        if data.requester_listing_category:
+            conversation_data["requester_listing_category"] = data.requester_listing_category
+        if data.recipient_listing_category:
+            conversation_data["recipient_listing_category"] = data.recipient_listing_category
 
         # Create conversation
         conv_ref = db.collection("conversations").document()
@@ -238,6 +245,8 @@ async def get_conversations(request: Request):
                 "recipientUid": conv_data.get("recipient_uid"),
                 "requesterListingId": conv_data.get("requester_listing_id"),
                 "recipientListingId": conv_data.get("recipient_listing_id"),
+                "requesterListingCategory": conv_data.get("requester_listing_category"),
+                "recipientListingCategory": conv_data.get("recipient_listing_category"),
                 "lastMessage": conv_data.get("last_message", ""),
                 "lastMessageAt": conv_data.get("last_message_at"),
                 "unreadCount": unread_count,
@@ -257,7 +266,7 @@ async def get_conversations(request: Request):
 
 @router.get("/conversations/{conversation_id}/messages")
 @limiter.limit("60/minute")
-async def get_messages(request: Request, conversation_id: str, limit: int = 50):
+async def get_messages(request: Request, conversation_id: str, limit: int = 25):
     """
     Get messages for a conversation.
 

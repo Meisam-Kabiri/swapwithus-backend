@@ -3,7 +3,7 @@ import logging
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.database.connection import get_pool
+from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
 from app.models.swap import ReviewCreate, ReviewUpdate
@@ -29,7 +29,7 @@ async def create_review(request: Request, review: ReviewCreate):
         raise HTTPException(status_code=400, detail="Cannot review yourself")
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
                 # Verify swap exists and is completed
                 swap_row = await conn.fetchrow(
@@ -128,7 +128,7 @@ async def get_user_reviews(request: Request, user_uid: str):
     extract_firebase_user_uid(request)  # Verify authenticated
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # Get reviews
             reviews_rows = await conn.fetch(
                 """
@@ -146,13 +146,20 @@ async def get_user_reviews(request: Request, user_uid: str):
 
             reviews = []
             for row in reviews_rows:
-                review_dict = dict(row)
-                # Convert UUID to string
-                review_dict["review_id"] = str(review_dict["review_id"])
-                review_dict["swap_id"] = str(review_dict["swap_id"])
-                # Convert datetime to ISO string
-                review_dict["created_at"] = review_dict["created_at"].isoformat()
-                review_dict["updated_at"] = review_dict["updated_at"].isoformat()
+                review_dict = {
+                    "reviewId": str(row["review_id"]),
+                    "swapId": str(row["swap_id"]),
+                    "reviewerUid": row["reviewer_uid"],
+                    "revieweeUid": row["reviewee_uid"],
+                    "rating": row["rating"],
+                    "communicationRating": row["communication_rating"],
+                    "itemConditionRating": row["item_condition_rating"],
+                    "timelinessRating": row["timeliness_rating"],
+                    "comment": row["comment"],
+                    "reviewerName": row["reviewer_name"],
+                    "createdAt": row["created_at"].isoformat(),
+                    "updatedAt": row["updated_at"].isoformat(),
+                }
                 reviews.append(review_dict)
 
             # Get stats
@@ -165,7 +172,15 @@ async def get_user_reviews(request: Request, user_uid: str):
                 user_uid,
             )
 
-            stats = dict(stats_row) if stats_row else {"total_reviews": 0, "average_rating": 0.0, "total_swaps_completed": 0, "trust_score": 0}
+            if stats_row:
+                stats = {
+                    "total_reviews": stats_row["total_reviews"] or 0,
+                    "average_rating": float(stats_row["average_rating"]) if stats_row["average_rating"] else 0.0,
+                    "total_swaps_completed": stats_row["total_swaps_completed"] or 0,
+                    "trust_score": stats_row["trust_score"] or 0
+                }
+            else:
+                stats = {"total_reviews": 0, "average_rating": 0.0, "total_swaps_completed": 0, "trust_score": 0}
 
             return JSONResponse(status_code=200, content={"reviews": reviews, "stats": stats})
 
@@ -183,7 +198,7 @@ async def get_my_reviews(request: Request):
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             reviews_rows = await conn.fetch(
                 """
                 SELECT r.review_id, r.created_at, r.updated_at, r.reviewer_uid, r.reviewee_uid,
@@ -200,13 +215,20 @@ async def get_my_reviews(request: Request):
 
             reviews = []
             for row in reviews_rows:
-                review_dict = dict(row)
-                # Convert UUID to string
-                review_dict["review_id"] = str(review_dict["review_id"])
-                review_dict["swap_id"] = str(review_dict["swap_id"])
-                # Convert datetime to ISO string
-                review_dict["created_at"] = review_dict["created_at"].isoformat()
-                review_dict["updated_at"] = review_dict["updated_at"].isoformat()
+                review_dict = {
+                    "reviewId": str(row["review_id"]),
+                    "swapId": str(row["swap_id"]),
+                    "reviewerUid": row["reviewer_uid"],
+                    "revieweeUid": row["reviewee_uid"],
+                    "rating": row["rating"],
+                    "communicationRating": row["communication_rating"],
+                    "itemConditionRating": row["item_condition_rating"],
+                    "timelinessRating": row["timeliness_rating"],
+                    "comment": row["comment"],
+                    "revieweeName": row["reviewee_name"],
+                    "createdAt": row["created_at"].isoformat(),
+                    "updatedAt": row["updated_at"].isoformat(),
+                }
                 reviews.append(review_dict)
 
             return JSONResponse(status_code=200, content={"reviews": reviews})
@@ -226,21 +248,27 @@ async def can_review_swap(request: Request, swap_id: str):
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # Get swap details
             swap_row = await conn.fetchrow("SELECT user_a_uid, user_b_uid, status FROM swaps WHERE swap_id = $1", swap_id)
 
+            logger.info(f"🔍 Can review check - User: {uid}, Swap: {swap_id}")
+            logger.info(f"🔍 Swap data: {dict(swap_row) if swap_row else 'Not found'}")
+
             if not swap_row:
+                logger.warning(f"❌ Swap not found: {swap_id}")
                 return JSONResponse(status_code=200, content={"can_review": False, "reason": "Swap not found"})
 
             # Check if user is participant
             if swap_row["user_a_uid"] != uid and swap_row["user_b_uid"] != uid:
+                logger.warning(f"❌ User {uid} not participant in swap {swap_id}")
                 return JSONResponse(
                     status_code=200, content={"can_review": False, "reason": "You are not a participant in this swap"}
                 )
 
             # Check if swap is completed
             if swap_row["status"] != "completed":
+                logger.warning(f"❌ Swap {swap_id} status is '{swap_row['status']}', not completed")
                 return JSONResponse(
                     status_code=200, content={"can_review": False, "reason": "Swap must be completed before reviewing"}
                 )
@@ -251,10 +279,12 @@ async def can_review_swap(request: Request, swap_id: str):
             )
 
             if existing_review:
+                logger.info(f"⚠️ User {uid} already reviewed swap {swap_id}")
                 return JSONResponse(
                     status_code=200, content={"can_review": False, "reason": "You have already reviewed this swap"}
                 )
 
+            logger.info(f"✅ User {uid} CAN review swap {swap_id}")
             return JSONResponse(status_code=200, content={"can_review": True})
 
     except Exception as e:
@@ -272,7 +302,7 @@ async def update_review(request: Request, review_id: str, review_update: ReviewU
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
                 # Verify review exists and user is reviewer
                 review_row = await conn.fetchrow(
@@ -350,7 +380,7 @@ async def delete_review(request: Request, review_id: str):
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
                 # Verify review exists and user is reviewer
                 review_row = await conn.fetchrow(

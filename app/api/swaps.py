@@ -4,10 +4,11 @@ from datetime import datetime
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.database.connection import get_pool
+from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
 from app.models.swap import SwapCreate, SwapUpdate
+from app.utils.cdn_auth import make_urlprefix_token
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -62,7 +63,7 @@ async def create_swap(request: Request, swap: SwapCreate):
     """
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # Check for existing active swap between these users with same listings
             existing_swap = await conn.fetchrow(
                 """
@@ -128,6 +129,9 @@ async def get_my_swaps(request: Request, status: str | None = None):
     """
     uid = extract_firebase_user_uid(request)
 
+    # Generate signed token for CDN URLs
+    token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
+
     query = """
         SELECT s.swap_id, s.created_at, s.updated_at, s.user_a_uid, s.user_b_uid,
                s.listing_a_id, s.listing_b_id, s.category, s.status, s.conversation_id,
@@ -140,23 +144,45 @@ async def get_my_swaps(request: Request, status: str | None = None):
                CASE
                    WHEN s.user_a_uid = $1 THEN u_b.profile_image
                    ELSE u_a.profile_image
-               END as other_user_image
+               END as other_user_image,
+               img_a.cdn_url as listing_a_image,
+               img_b.cdn_url as listing_b_image
         FROM swaps s
         LEFT JOIN users u_a ON s.user_a_uid = u_a.owner_firebase_uid
         LEFT JOIN users u_b ON s.user_b_uid = u_b.owner_firebase_uid
+        LEFT JOIN LATERAL (
+            SELECT
+                'https://cdn.swapwithus.com/' || s.category || '/' ||
+                split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
+                '?' || $2 as cdn_url
+            FROM images
+            WHERE listing_id = s.listing_a_id AND category = s.category
+            ORDER BY is_hero DESC, sort_order ASC
+            LIMIT 1
+        ) img_a ON true
+        LEFT JOIN LATERAL (
+            SELECT
+                'https://cdn.swapwithus.com/' || s.category || '/' ||
+                split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
+                '?' || $2 as cdn_url
+            FROM images
+            WHERE listing_id = s.listing_b_id AND category = s.category
+            ORDER BY is_hero DESC, sort_order ASC
+            LIMIT 1
+        ) img_b ON true
         WHERE s.user_a_uid = $1 OR s.user_b_uid = $1
     """
 
-    params = [uid]
+    params = [uid, token_prefix]
 
     if status:
-        query += " AND s.status = $2"
+        query += " AND s.status = $3"
         params.append(status)
 
     query += " ORDER BY s.created_at DESC"
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             rows = await conn.fetch(query, *params)
 
             swaps = []
@@ -209,8 +235,11 @@ async def get_swap(request: Request, swap_id: str):
     """
     uid = extract_firebase_user_uid(request)
 
+    # Generate signed token for CDN URLs
+    token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
+
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # First, get the swap with category to determine which listings table to query
             base_query = """
                 SELECT s.swap_id, s.created_at, s.updated_at, s.user_a_uid, s.user_b_uid,
@@ -224,14 +253,36 @@ async def get_swap(request: Request, swap_id: str):
                        CASE
                            WHEN s.user_a_uid = $2 THEN u_b.profile_image
                            ELSE u_a.profile_image
-                       END as other_user_image
+                       END as other_user_image,
+                       img_a.cdn_url as listing_a_image,
+                       img_b.cdn_url as listing_b_image
                 FROM swaps s
                 LEFT JOIN users u_a ON s.user_a_uid = u_a.owner_firebase_uid
                 LEFT JOIN users u_b ON s.user_b_uid = u_b.owner_firebase_uid
+                LEFT JOIN LATERAL (
+                    SELECT
+                        'https://cdn.swapwithus.com/' || s.category || '/' ||
+                        split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
+                        '?' || $3 as cdn_url
+                    FROM images
+                    WHERE listing_id = s.listing_a_id AND category = s.category
+                    ORDER BY is_hero DESC, sort_order ASC
+                    LIMIT 1
+                ) img_a ON true
+                LEFT JOIN LATERAL (
+                    SELECT
+                        'https://cdn.swapwithus.com/' || s.category || '/' ||
+                        split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
+                        '?' || $3 as cdn_url
+                    FROM images
+                    WHERE listing_id = s.listing_b_id AND category = s.category
+                    ORDER BY is_hero DESC, sort_order ASC
+                    LIMIT 1
+                ) img_b ON true
                 WHERE s.swap_id = $1
             """
 
-            swap_row = await conn.fetchrow(base_query, swap_id, uid)
+            swap_row = await conn.fetchrow(base_query, swap_id, uid, token_prefix)
 
             if not swap_row:
                 raise HTTPException(status_code=404, detail="Swap not found")
@@ -290,7 +341,7 @@ async def accept_swap(request: Request, swap_id: str):
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # Get current swap
             swap_row = await conn.fetchrow("SELECT user_a_uid, user_b_uid, status FROM swaps WHERE swap_id = $1", swap_id)
 
@@ -338,7 +389,7 @@ async def decline_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # Get current swap
             swap_row = await conn.fetchrow("SELECT user_a_uid, user_b_uid, status FROM swaps WHERE swap_id = $1", swap_id)
 
@@ -389,7 +440,7 @@ async def confirm_receipt(request: Request, swap_id: str):
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
                 # Get current swap
                 swap_row = await conn.fetchrow(
@@ -491,7 +542,7 @@ async def cancel_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
     uid = extract_firebase_user_uid(request)
 
     try:
-        async with get_pool().acquire() as conn:
+        async with get_pool_from_request(request).acquire() as conn:
             # Get current swap
             swap_row = await conn.fetchrow(
                 "SELECT user_a_uid, user_b_uid, status FROM swaps WHERE swap_id = $1", swap_id

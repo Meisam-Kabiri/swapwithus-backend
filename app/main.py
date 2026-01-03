@@ -8,10 +8,12 @@ from slowapi.errors import RateLimitExceeded
 
 import app.database.connection as db_connection
 # Include API routers
+from app.api.admin import router as admin_router
 from app.api.browse import router as browse_router
 from app.api.favorites import router as favorites_router
 from app.api.listings import router as listings_router
 from app.api.messaging import router as messaging_router
+from app.api.reports import router as reports_router
 from app.api.reviews import router as reviews_router
 from app.api.swaps import router as swaps_router
 from app.api.users import router as users_router
@@ -29,15 +31,22 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # Startup
-    db_connection._db_pool = await create_asyncpg_pool()
+    # Startup - Create pool once
+    pool = await create_asyncpg_pool()
+
+    # Store in app.state (for API endpoints)
+    app.state.db_pool = pool
+
+    # Also keep global for scripts/migrations
+    db_connection._db_pool = pool
+
     logger.info("Database pool created at startup")
 
     yield  # App runs
 
     # Shutdown
-    if db_connection._db_pool:
-        await db_connection._db_pool.close()
+    if app.state.db_pool:
+        await app.state.db_pool.close()
         logger.info("🔒 Database pool closed")
 
 
@@ -67,6 +76,8 @@ app.include_router(browse_router, prefix="/api")
 app.include_router(messaging_router, prefix="/api")
 app.include_router(swaps_router, prefix="/api")
 app.include_router(reviews_router, prefix="/api")
+app.include_router(reports_router, prefix="/api")
+app.include_router(admin_router, prefix="/api")
 
 
 @app.get("/api/health")
