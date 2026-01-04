@@ -334,6 +334,7 @@ async def get_user_details(request: Request, user_id: str):
     }
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/users/{user_id}/ban")
 @limiter.limit("20/hour")
 async def ban_user(
@@ -393,6 +394,7 @@ async def ban_user(
     }
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/users/{user_id}/unban")
 @limiter.limit("20/hour")
 async def unban_user(request: Request, user_id: str):
@@ -436,6 +438,7 @@ async def unban_user(request: Request, user_id: str):
     }
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/users/{user_id}/make-admin")
 @limiter.limit("5/hour")
 async def make_user_admin(request: Request, user_id: str):
@@ -472,6 +475,7 @@ async def make_user_admin(request: Request, user_id: str):
     }
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/users/{user_id}/remove-admin")
 @limiter.limit("5/hour")
 async def remove_admin_privileges(request: Request, user_id: str):
@@ -607,6 +611,7 @@ async def get_report_details(request: Request, report_id: int):
     return ReportWithDetails(**dict(report))
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/reports/{report_id}/resolve")
 @limiter.limit("30/hour")
 async def resolve_report(
@@ -681,6 +686,7 @@ async def resolve_report(
     }
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/reports/{report_id}/dismiss")
 @limiter.limit("30/hour")
 async def dismiss_report(request: Request, report_id: int, notes: str | None = None):
@@ -790,6 +796,7 @@ async def get_swaps(
     return [SwapManagement(**dict(s)) for s in swaps_dict]
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/swaps/{swap_id}/cancel")
 @limiter.limit("20/hour")
 async def admin_cancel_swap(

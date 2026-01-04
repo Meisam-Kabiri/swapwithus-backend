@@ -331,7 +331,8 @@ async def get_swap(request: Request, swap_id: str):
         raise HTTPException(status_code=500, detail="Failed to fetch swap. Please try again.")
 
 
-@router.patch("/{swap_id}/accept")
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+@router.post("/{swap_id}/accept")
 @limiter.limit("20/hour")
 async def accept_swap(request: Request, swap_id: str):
     """
@@ -379,7 +380,8 @@ async def accept_swap(request: Request, swap_id: str):
         raise HTTPException(status_code=500, detail="Failed to accept swap. Please try again.")
 
 
-@router.patch("/{swap_id}/decline")
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+@router.post("/{swap_id}/decline")
 @limiter.limit("20/hour")
 async def decline_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
     """
@@ -430,6 +432,7 @@ async def decline_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
         raise HTTPException(status_code=500, detail="Failed to decline swap. Please try again.")
 
 
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
 @router.post("/{swap_id}/confirm-receipt")
 @limiter.limit("20/hour")
 async def confirm_receipt(request: Request, swap_id: str):
@@ -532,7 +535,8 @@ async def confirm_receipt(request: Request, swap_id: str):
         raise HTTPException(status_code=500, detail="Failed to confirm receipt. Please try again.")
 
 
-@router.patch("/{swap_id}/cancel")
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+@router.post("/{swap_id}/cancel")
 @limiter.limit("20/hour")
 async def cancel_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
     """

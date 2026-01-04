@@ -18,7 +18,6 @@ Security:
 import logging
 
 from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
-from typing import Optional
 from firebase_admin import firestore
 
 from app.middleware.auth import extract_firebase_user_uid
@@ -333,8 +332,8 @@ async def get_messages(request: Request, conversation_id: str, limit: int = 25):
 async def send_message(
     request: Request,
     conversation_id: str,
-    text: Optional[str] = Form(None),
-    media: Optional[UploadFile] = File(None)
+    text: str | None = Form(None),
+    media: UploadFile | None = File(None)
 ):
     """
     Send a message in a conversation.
@@ -447,7 +446,8 @@ async def send_message(
         raise HTTPException(status_code=500, detail="Failed to send message")
 
 
-@router.patch("/conversations/{conversation_id}/read")
+# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+@router.post("/conversations/{conversation_id}/read")
 @limiter.limit("50/minute")
 async def mark_messages_read(request: Request, conversation_id: str):
     """

@@ -1,6 +1,5 @@
 import logging
 import os
-from typing import Optional, Tuple
 
 import aiohttp
 
@@ -8,7 +7,7 @@ logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
 
-async def geocode_address(address: str) -> Tuple[Optional[float], Optional[float]]:
+async def geocode_address(address: str) -> tuple[float | None, float | None]:
     """Convert address to coordinates using Google Geocoding API"""
     try:
         if not address or not address.strip():

@@ -9,7 +9,7 @@ import os
 import uuid
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
-from typing import Literal, Tuple
+from typing import Literal
 
 from fastapi import UploadFile, HTTPException
 from firebase_admin import storage
@@ -74,12 +74,12 @@ def validate_media_file(file: UploadFile) -> Literal["image", "video", "audio"]:
     return media_type
 
 
-def optimize_image(image_bytes: bytes) -> Tuple[io.BytesIO, str]:
+def optimize_image(image_bytes: bytes) -> tuple[io.BytesIO, str]:
     """
     Optimize image for web (resize and compress)
 
     Returns:
-        Tuple[io.BytesIO, str]: Optimized image bytes and content type
+        tuple[io.BytesIO, str]: Optimized image bytes and content type
     """
     try:
         img = Image.open(io.BytesIO(image_bytes))
@@ -212,7 +212,7 @@ def _blocking_upload_media(
 async def upload_message_media(
     file: UploadFile,
     conversation_id: str
-) -> Tuple[str, Literal["image", "video", "audio"]]:
+) -> tuple[str, Literal["image", "video", "audio"]]:
     """
     Upload media file for messaging (async wrapper)
 
@@ -221,7 +221,7 @@ async def upload_message_media(
         conversation_id: Conversation ID for organizing uploads
 
     Returns:
-        Tuple[str, str]: (media_url, media_type)
+        tuple[str, str]: (media_url, media_type)
 
     Raises:
         HTTPException: If upload fails
