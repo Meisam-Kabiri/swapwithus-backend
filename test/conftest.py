@@ -41,8 +41,45 @@ def docker_compose():
     subprocess.run(["docker", "compose", "up", "-d"], check=True)
 
     import time
+    time.sleep(2)  # Wait for the database to be ready
 
-    time.sleep(1)  # Wait for the database to be ready
+    # Drop and recreate the database to start fresh
+    print("🗑️  Resetting test database...")
+    subprocess.run([
+        "docker", "exec", "swapwithus_backend-db-1",
+        "psql", "-U", "msm", "-d", "postgres", "-c",
+        'DROP DATABASE IF EXISTS "swapwithusDB";'
+    ], check=True, capture_output=True)
+
+    subprocess.run([
+        "docker", "exec", "swapwithus_backend-db-1",
+        "psql", "-U", "msm", "-d", "postgres", "-c",
+        'CREATE DATABASE "swapwithusDB";'
+    ], check=True, capture_output=True)
+
+    print("✅ Database reset complete")
+
+    # Run Alembic migrations to create/update schema
+    print("📦 Running Alembic migrations for test database...")
+    result = subprocess.run(
+        ["./scripts/alembic-local.sh", "upgrade", "head"],
+        capture_output=True,
+        text=True,
+        cwd="/home/meisam/Documents/swapwithus/swapwithus_backend"
+    )
+
+    # Always show output
+    if result.stdout:
+        print(result.stdout)
+    if result.stderr:
+        print(result.stderr)
+
+    if result.returncode != 0:
+        print(f"❌ Migration failed with code {result.returncode}")
+        sys.exit(1)
+
+    print("✅ Test database schema up to date")
+
     yield  # tests run after this point
 
     # Teardown: stop docker-compose

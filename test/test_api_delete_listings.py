@@ -1,4 +1,5 @@
 from test.conftest import number_of_test_images_in_gcp
+from test.factories import add_user, add_listing
 from unittest.mock import patch
 
 from httpx import ASGITransport, AsyncClient
@@ -7,12 +8,10 @@ from app.main import app
 
 
 async def detele_listing_template(create_db_pool, category: str):
-    # read a the first listing id from the home tables
-    listing_id = await create_db_pool.fetchval(f"SELECT listing_id FROM {category} LIMIT 1")
+    # Create test data instead of selecting from existing data
+    owner_uid = await add_user(create_db_pool)
+    listing_id = await add_listing(create_db_pool, owner_uid, category)
     print(f"Listing ID to delete: {listing_id}")
-    owner_uid = await create_db_pool.fetchval(
-        f"SELECT owner_firebase_uid FROM {category} WHERE listing_id = $1", listing_id
-    )
     number_of_homelistings_before = await create_db_pool.fetchval(
         f"SELECT COUNT(*) FROM {category}"
     )

@@ -37,9 +37,11 @@ async def test_browse_homes_pagination(create_db_pool):
 
 
 async def test_one_home_listing(create_db_pool):
-    # Fetch one listing from the database to test
-    listing = await create_db_pool.fetchrow("SELECT * FROM homes LIMIT 1")
-    listing_id = listing["listing_id"]
+    from test.factories import add_user, add_listing
+
+    # Create test data
+    owner_uid = await add_user(create_db_pool)
+    listing_id = await add_listing(create_db_pool, owner_uid, "homes", num_images=0)
 
     async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
         response = await client.get(f"api/listings/homes/{listing_id}")

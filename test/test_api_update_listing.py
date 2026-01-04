@@ -1,6 +1,6 @@
 import json
 from test.conftest import number_of_test_images_in_gcp
-from test.factories import HomeListingUpdateCreateFactoryDict, fake_uploadfile_list
+from test.factories import HomeListingUpdateCreateFactoryDict, fake_uploadfile_list, add_user, add_listing
 from unittest.mock import patch
 
 from httpx import ASGITransport, AsyncClient
@@ -12,13 +12,15 @@ from app.services.gcp_image_service import upload_photo_to_storage as real_uploa
 async def test_update_listing_home(create_db_pool):
 
     num_of_new_images = 3
+
+    # Create test data instead of selecting from existing data
+    owner_uid = await add_user(create_db_pool)
+    listing_id = await add_listing(create_db_pool, owner_uid, "homes")
+
     number_of_homelistings_before = await create_db_pool.fetchval("SELECT COUNT(*) FROM homes")
-    listing_id = await create_db_pool.fetchval("SELECT listing_id FROM homes LIMIT 1")
+
     public_urls_on_database_before = await create_db_pool.fetch(
         "SELECT public_url FROM images WHERE listing_id = $1 ORDER BY sort_order", listing_id
-    )
-    owner_uid = await create_db_pool.fetchval(
-        "SELECT owner_firebase_uid FROM homes WHERE listing_id = $1", listing_id
     )
     number_of_test_images_on_gcp_before, images_list_on_gcp_before = number_of_test_images_in_gcp()
 

@@ -446,7 +446,7 @@ async def send_message(
         raise HTTPException(status_code=500, detail="Failed to send message")
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/conversations/{conversation_id}/read")
 @limiter.limit("50/minute")
 async def mark_messages_read(request: Request, conversation_id: str):
