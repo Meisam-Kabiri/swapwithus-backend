@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool_from_request
@@ -17,13 +17,15 @@ router = APIRouter(prefix="/reviews", tags=["reviews"])
 
 @router.post("")
 @limiter.limit("10/hour")
-async def create_review(request: Request, review: ReviewCreate):
+async def create_review(
+    request: Request,
+    review: ReviewCreate,
+    reviewer_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Create a review for a completed swap.
     Can only review if swap is completed and haven't reviewed yet.
     """
-    reviewer_uid = extract_firebase_user_uid(request)
-
     # Verify reviewer is not reviewing themselves
     if reviewer_uid == review.reviewee_uid:
         raise HTTPException(status_code=400, detail="Cannot review yourself")
@@ -120,13 +122,15 @@ async def create_review(request: Request, review: ReviewCreate):
 
 @router.get("/user/{user_uid}")
 @limiter.limit("100/minute")
-async def get_user_reviews(request: Request, user_uid: str):
+async def get_user_reviews(
+    request: Request,
+    user_uid: str,
+    _uid: str = Depends(extract_firebase_user_uid),  # Verify authenticated
+):
     """
     Get all reviews for a specific user (reviews they received).
     Also returns user stats.
     """
-    extract_firebase_user_uid(request)  # Verify authenticated
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             # Get reviews
@@ -191,12 +195,13 @@ async def get_user_reviews(request: Request, user_uid: str):
 
 @router.get("/my-reviews")
 @limiter.limit("100/minute")
-async def get_my_reviews(request: Request):
+async def get_my_reviews(
+    request: Request,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get all reviews written by the current user (reviews they gave).
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             reviews_rows = await conn.fetch(
@@ -240,13 +245,15 @@ async def get_my_reviews(request: Request):
 
 @router.get("/can-review/{swap_id}")
 @limiter.limit("100/minute")
-async def can_review_swap(request: Request, swap_id: str):
+async def can_review_swap(
+    request: Request,
+    swap_id: str,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Check if current user can review a swap.
     Returns can_review boolean and reason if not.
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             # Get swap details
@@ -294,13 +301,16 @@ async def can_review_swap(request: Request, swap_id: str):
 
 @router.patch("/{review_id}")
 @limiter.limit("10/hour")
-async def update_review(request: Request, review_id: str, review_update: ReviewUpdate):
+async def update_review(
+    request: Request,
+    review_id: str,
+    review_update: ReviewUpdate,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Update an existing review.
     Only the reviewer can update their own review.
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
@@ -372,13 +382,15 @@ async def update_review(request: Request, review_id: str, review_update: ReviewU
 
 @router.delete("/{review_id}")
 @limiter.limit("10/hour")
-async def delete_review(request: Request, review_id: str):
+async def delete_review(
+    request: Request,
+    review_id: str,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Delete a review.
     Only the reviewer can delete their own review.
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():

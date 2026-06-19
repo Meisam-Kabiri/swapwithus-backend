@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool_from_request
@@ -19,14 +19,14 @@ router = APIRouter(prefix="/users", tags=["users"])
 
 @router.get("/me")
 @limiter.limit("100/minute")
-async def get_my_user_data(request: Request):
+async def get_my_user_data(
+    request: Request,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get current user's own profile data
     UID is extracted from Firebase token, not from URL
     """
-    # Extract UID from token
-    uid = extract_firebase_user_uid(request)
-
     query = """
         SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
                linkedin_url, instagram_id, facebook_id, created_at, updated_at
@@ -40,38 +40,17 @@ async def get_my_user_data(request: Request):
         return dict(user_row)
 
 
-@router.get("/me")
-@limiter.limit("100/minute")
-async def get_my_user_data(request: Request):
-    """
-    Get current user's own profile data
-    UID is extracted from Firebase token, not from URL
-    """
-    # Extract UID from token
-    uid = extract_firebase_user_uid(request)
-
-    query = """
-        SELECT owner_firebase_uid, email, name, profile_image, phone_country_code, phone_number,
-               linkedin_url, instagram_id, facebook_id, created_at, updated_at
-        FROM users
-        WHERE owner_firebase_uid = $1
-    """
-    async with get_pool_from_request(request).acquire() as conn:
-        user_row = await conn.fetchrow(query, uid)
-        if not user_row:
-            raise HTTPException(status_code=404, detail="User not found")
-        return dict(user_row)
-      
 @router.patch("/me")
 @limiter.limit("10/minute")
-async def update_my_user_data(request: Request, user: UserUpdate):
+async def update_my_user_data(
+    request: Request,
+    user: UserUpdate,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Update current user's own profile data
     UID is extracted from Firebase token, not from URL
     """
-    # Extract UID from token
-    uid = extract_firebase_user_uid(request)
-
     query = """
         UPDATE users
         SET
@@ -255,16 +234,17 @@ async def get_user_listings(uid: str, request: Request):
 
 @router.post("")
 @limiter.limit("5/hour")
-async def create_user(request: Request, user: UserCreate):
+async def create_user(
+    request: Request,
+    user: UserCreate,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Create a new user account.
 
     Called after Firebase signup (email/password, Google, or Facebook).
     Verifies Firebase token and creates user record in database.
     """
-    # Verify Firebase token
-    user_uid = extract_firebase_user_uid(request)
-
     # Verify the token UID matches the user being created
     if user.owner_firebase_uid != user_uid:
         raise HTTPException(403, "Cannot create user account for another user")

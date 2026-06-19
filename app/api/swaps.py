@@ -1,7 +1,7 @@
 import logging
 from datetime import datetime
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool_from_request
@@ -33,13 +33,15 @@ def snake_to_camel_dict(data):
 
 @router.post("")
 @limiter.limit("20/hour")
-async def create_swap(request: Request, swap: SwapCreate):
+async def create_swap(
+    request: Request,
+    swap: SwapCreate,
+    user_a_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Create a new swap request.
     User A initiates swap with User B.
     """
-    user_a_uid = extract_firebase_user_uid(request)
-
     # Verify user is not swapping with themselves
     if user_a_uid == swap.user_b_uid:
         raise HTTPException(status_code=400, detail="Cannot create swap with yourself")
@@ -122,13 +124,15 @@ async def create_swap(request: Request, swap: SwapCreate):
 
 @router.get("")
 @limiter.limit("100/minute")
-async def get_my_swaps(request: Request, status: str | None = None):
+async def get_my_swaps(
+    request: Request,
+    status: str | None = None,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get all swaps for the current user.
     Optionally filter by status.
     """
-    uid = extract_firebase_user_uid(request)
-
     # Generate signed token for CDN URLs
     token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
 
@@ -227,14 +231,16 @@ async def get_my_swaps(request: Request, status: str | None = None):
 
 @router.get("/{swap_id}")
 @limiter.limit("100/minute")
-async def get_swap(request: Request, swap_id: str):
+async def get_swap(
+    request: Request,
+    swap_id: str,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get details of a specific swap.
     User must be participant in the swap.
     Returns swap with populated user and listing details.
     """
-    uid = extract_firebase_user_uid(request)
-
     # Generate signed token for CDN URLs
     token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
 
@@ -334,13 +340,15 @@ async def get_swap(request: Request, swap_id: str):
 # Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/{swap_id}/accept")
 @limiter.limit("20/hour")
-async def accept_swap(request: Request, swap_id: str):
+async def accept_swap(
+    request: Request,
+    swap_id: str,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Accept a swap request.
     Only user_b can accept.
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             # Get current swap
@@ -383,13 +391,16 @@ async def accept_swap(request: Request, swap_id: str):
 # Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/{swap_id}/decline")
 @limiter.limit("20/hour")
-async def decline_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
+async def decline_swap(
+    request: Request,
+    swap_id: str,
+    swap_update: SwapUpdate,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Decline a swap request.
     Only user_b can decline.
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             # Get current swap
@@ -435,13 +446,15 @@ async def decline_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
 # Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/{swap_id}/confirm-receipt")
 @limiter.limit("20/hour")
-async def confirm_receipt(request: Request, swap_id: str):
+async def confirm_receipt(
+    request: Request,
+    swap_id: str,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Confirm receipt of swapped item.
     When both users confirm, swap status changes to 'completed'.
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
@@ -538,13 +551,16 @@ async def confirm_receipt(request: Request, swap_id: str):
 # Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/{swap_id}/cancel")
 @limiter.limit("20/hour")
-async def cancel_swap(request: Request, swap_id: str, swap_update: SwapUpdate):
+async def cancel_swap(
+    request: Request,
+    swap_id: str,
+    swap_update: SwapUpdate,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Cancel a swap.
     Either party can cancel before completion.
     """
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             # Get current swap

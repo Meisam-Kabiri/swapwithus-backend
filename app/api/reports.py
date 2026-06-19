@@ -3,7 +3,7 @@ Public report endpoints
 Allows users to report inappropriate content, scams, spam, etc.
 """
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
@@ -15,7 +15,11 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 
 @router.post("", response_model=ReportResponse, status_code=201)
 @limiter.limit("5/hour")
-async def create_report(request: Request, report: ReportCreate):
+async def create_report(
+    request: Request,
+    report: ReportCreate,
+    reporter_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Submit a report for inappropriate content or user behavior
 
@@ -27,8 +31,6 @@ async def create_report(request: Request, report: ReportCreate):
 
     At least one target must be specified
     """
-    reporter_uid = extract_firebase_user_uid(request)
-
     # Validate that at least one target is specified
     if not any([
         report.reported_uid,
@@ -129,14 +131,15 @@ async def create_report(request: Request, report: ReportCreate):
 
 @router.get("/my-reports")
 @limiter.limit("100/minute")
-async def get_my_reports(request: Request):
+async def get_my_reports(
+    request: Request,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get all reports submitted by the authenticated user
 
     Returns list of reports with their current status
     """
-    user_uid = extract_firebase_user_uid(request)
-
     async with get_pool_from_request(request).acquire() as conn:
         reports = await conn.fetch(
             """
@@ -153,14 +156,16 @@ async def get_my_reports(request: Request):
 
 @router.get("/{report_id}")
 @limiter.limit("100/minute")
-async def get_report(request: Request, report_id: int):
+async def get_report(
+    request: Request,
+    report_id: int,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get details of a specific report
 
     Users can only view reports they submitted
     """
-    user_uid = extract_firebase_user_uid(request)
-
     async with get_pool_from_request(request).acquire() as conn:
         report = await conn.fetchrow(
             """

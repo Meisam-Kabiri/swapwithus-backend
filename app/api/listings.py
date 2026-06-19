@@ -10,7 +10,7 @@ import logging
 import uuid
 from typing import List
 
-from fastapi import APIRouter, File, Form, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
 from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
@@ -37,7 +37,10 @@ router = APIRouter(prefix="/listings", tags=["listings"])
 
 @router.get("/me")
 @limiter.limit("60/minute")
-async def get_my_all_listings(request: Request):
+async def get_my_all_listings(
+    request: Request,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get all authenticated user's listings across all categories.
 
@@ -53,9 +56,6 @@ async def get_my_all_listings(request: Request):
             "total": int
         }
     """
-    # Authenication step - get user uid from token
-    uid = extract_firebase_user_uid(request)
-
     async def fetch_category(category: str, token: str):
         """Fetch listings for a single category."""
         async with get_pool_from_request(request).acquire() as conn:
@@ -119,6 +119,7 @@ async def create_listing(
     request: Request,
     listing: str = Form(...),
     images: List[UploadFile] = File(...),
+    user_uid: str = Depends(extract_firebase_user_uid),
 ):
     """
     Create a new home listing with images.
@@ -126,9 +127,6 @@ async def create_listing(
     Uploads images to cloud storage in parallel, then saves listing and image
     metadata to the database. Supports up to 20 images per listing.
     """
-    # Verify user is authenticated and extract UID
-    user_uid = extract_firebase_user_uid(request)
-
     category = json.loads(listing).get("category", "").lower()
     if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
@@ -394,16 +392,18 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
 
 @router.delete("/{category}/{listing_id}")
 @limiter.limit("15/hour")
-async def delete_listing(request: Request, listing_id: str, category: str):
+async def delete_listing(
+    request: Request,
+    listing_id: str,
+    category: str,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Delete a listing and all associated images.
 
     Removes the listing from the database and deletes all associated images
     from both the database and cloud storage. Only the owner can delete their listing.
     """
-    # Authentication step - get user uid from token
-    user_uid = extract_firebase_user_uid(request)
-
     category = category.lower()
 
     if category not in LISTING_CATEGORIES:
@@ -454,6 +454,7 @@ async def update_home_listing(
     listing_id: str,
     listing: str = Form(...),
     images: List[UploadFile] = File(default=[]),
+    user_uid: str = Depends(extract_firebase_user_uid),
 ):
     """
     Update an existing home listing.
@@ -461,11 +462,8 @@ async def update_home_listing(
     Supports updating listing details, adding new images, removing old images,
     and modifying image metadata. Only the owner can update their listing.
     """
-    # Verify user is authenticated
     if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
-
-    user_uid = extract_firebase_user_uid(request)
 
     # Check if listing belongs to this user
     async with get_pool_from_request(request).acquire() as conn:

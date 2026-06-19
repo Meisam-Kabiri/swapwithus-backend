@@ -17,7 +17,7 @@ Security:
 
 import logging
 
-from fastapi import APIRouter, HTTPException, Request, UploadFile, File, Form
+from fastapi import APIRouter, Depends, HTTPException, Request, UploadFile, File, Form
 from firebase_admin import firestore
 
 from app.middleware.auth import extract_firebase_user_uid
@@ -78,7 +78,11 @@ def get_unread_count_for_user(conversation_data: dict, user_uid: str) -> int:
 
 @router.post("/conversations")
 @limiter.limit("10/minute")
-async def create_conversation(request: Request, data: CreateConversationRequest):
+async def create_conversation(
+    request: Request,
+    data: CreateConversationRequest,
+    requester_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Create a new conversation or return existing one.
 
@@ -87,10 +91,6 @@ async def create_conversation(request: Request, data: CreateConversationRequest)
     - Rate limited to 10/minute
     - Message content sanitized
     """
-    requester_uid = extract_firebase_user_uid(request)
-    if not requester_uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     # Validate not messaging self
     if requester_uid == data.recipient_uid:
         raise HTTPException(status_code=400, detail="Cannot message yourself")
@@ -212,17 +212,16 @@ async def create_conversation(request: Request, data: CreateConversationRequest)
 
 @router.get("/conversations")
 @limiter.limit("30/minute")
-async def get_conversations(request: Request):
+async def get_conversations(
+    request: Request,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get all conversations for the authenticated user.
 
     Returns conversations ordered by last message time (most recent first).
     """
     print("Fetching conversations")
-    user_uid = extract_firebase_user_uid(request)
-    if not user_uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     try:
         conversations_ref = db.collection("conversations")
         user_conversations = (
@@ -265,7 +264,12 @@ async def get_conversations(request: Request):
 
 @router.get("/conversations/{conversation_id}/messages")
 @limiter.limit("60/minute")
-async def get_messages(request: Request, conversation_id: str, limit: int = 25):
+async def get_messages(
+    request: Request,
+    conversation_id: str,
+    limit: int = 25,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get messages for a conversation.
 
@@ -273,10 +277,6 @@ async def get_messages(request: Request, conversation_id: str, limit: int = 25):
     - User must be a participant
     - Ordered by creation time (oldest first for chat display)
     """
-    user_uid = extract_firebase_user_uid(request)
-    if not user_uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     try:
         # Verify user is participant
         conv_ref = db.collection("conversations").document(conversation_id)
@@ -333,7 +333,8 @@ async def send_message(
     request: Request,
     conversation_id: str,
     text: str | None = Form(None),
-    media: UploadFile | None = File(None)
+    media: UploadFile | None = File(None),
+    sender_uid: str = Depends(extract_firebase_user_uid),
 ):
     """
     Send a message in a conversation.
@@ -350,10 +351,6 @@ async def send_message(
     - Content sanitized
     - File type and size validation
     """
-    sender_uid = extract_firebase_user_uid(request)
-    if not sender_uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     # Validate at least text or media is provided
     if (not text or not text.strip()) and not media:
         raise HTTPException(status_code=400, detail="Message must contain text or media")
@@ -449,7 +446,11 @@ async def send_message(
 # Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/conversations/{conversation_id}/read")
 @limiter.limit("50/minute")
-async def mark_messages_read(request: Request, conversation_id: str):
+async def mark_messages_read(
+    request: Request,
+    conversation_id: str,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Mark all messages as read for the current user.
 
@@ -457,10 +458,6 @@ async def mark_messages_read(request: Request, conversation_id: str):
     - User UID verified from Firebase token
     - Checks user is a participant
     """
-    user_uid = extract_firebase_user_uid(request)
-    if not user_uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     try:
         # Get conversation and verify participation
         conv_ref = db.collection("conversations").document(conversation_id)
@@ -507,7 +504,10 @@ async def mark_messages_read(request: Request, conversation_id: str):
 @router.patch("/conversations/{conversation_id}/status")
 @limiter.limit("10/minute")
 async def update_conversation_status(
-    request: Request, conversation_id: str, data: ConversationStatusUpdate
+    request: Request,
+    conversation_id: str,
+    data: ConversationStatusUpdate,
+    user_uid: str = Depends(extract_firebase_user_uid),
 ):
     """
     Accept or decline a swap request.
@@ -516,10 +516,6 @@ async def update_conversation_status(
     - Only the HOST can accept/decline
     - User UID verified from Firebase token
     """
-    user_uid = extract_firebase_user_uid(request)
-    if not user_uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     try:
         # Get conversation
         conv_ref = db.collection("conversations").document(conversation_id)
@@ -551,7 +547,11 @@ async def update_conversation_status(
 
 @router.delete("/conversations/{conversation_id}")
 @limiter.limit("10/minute")
-async def delete_conversation(request: Request, conversation_id: str):
+async def delete_conversation(
+    request: Request,
+    conversation_id: str,
+    user_uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Delete a conversation and all its messages.
 
@@ -560,10 +560,6 @@ async def delete_conversation(request: Request, conversation_id: str):
     - User UID verified from Firebase token
     - Deletes all messages in the conversation
     """
-    user_uid = extract_firebase_user_uid(request)
-    if not user_uid:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
     try:
         # Get conversation and verify participation
         conv_ref = db.collection("conversations").document(conversation_id)

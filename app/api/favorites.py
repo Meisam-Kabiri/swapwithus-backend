@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 
 from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
@@ -15,11 +15,12 @@ router = APIRouter(prefix="/favorites", tags=["favorites"])
 
 @router.delete("/{listing_id}")
 @limiter.limit("50/minute")
-async def remove_favorite(request: Request, listing_id: str):
-    user_id = extract_firebase_user_uid(request)
+async def remove_favorite(
+    request: Request,
+    listing_id: str,
+    user_id: str = Depends(extract_firebase_user_uid),
+):
     logger.info(f"Removing favorite for listing {listing_id}, user {user_id}")
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
     if not listing_id:
         raise HTTPException(status_code=400, detail="listing_id is required")
 
@@ -38,10 +39,10 @@ async def remove_favorite(request: Request, listing_id: str):
 
 @router.post("")
 @limiter.limit("50/minute")
-async def add_favorite(request: Request):
-    user_id = extract_firebase_user_uid(request)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
+async def add_favorite(
+    request: Request,
+    user_id: str = Depends(extract_firebase_user_uid),
+):
     body = await request.json()
     listing_id = body.get("listing_id")
     logger.info(f"Adding favorite for listing {listing_id}, user {user_id}")
@@ -64,11 +65,10 @@ async def add_favorite(request: Request):
 
 @router.get("")
 @limiter.limit("50/minute")
-async def get_favorites(request: Request):
-    user_id = extract_firebase_user_uid(request)
-    if not user_id:
-        raise HTTPException(status_code=401, detail="Unauthorized")
-
+async def get_favorites(
+    request: Request,
+    user_id: str = Depends(extract_firebase_user_uid),
+):
     get_favorites_query = """
     SELECT h.*,
     f.listing_id,

@@ -8,6 +8,7 @@ from app.middleware.auth import extract_firebase_user_uid
 from app.database.connection import get_pool_from_request
 
 
+
 async def verify_admin(request: Request) -> str:
     """
     Verify that the authenticated user is an admin
@@ -44,25 +45,3 @@ async def verify_admin(request: Request) -> str:
             )
 
     return uid
-
-
-async def check_user_is_banned(uid: str) -> bool:
-    """
-    Check if a user is banned
-
-    Args:
-        uid: Firebase UID of the user
-
-    Returns:
-        bool: True if user is banned, False otherwise
-    """
-    async with get_pool_from_request(request).acquire() as conn:
-        result = await conn.fetchrow(
-            "SELECT is_banned FROM users WHERE owner_firebase_uid = $1",
-            uid
-        )
-
-        if result and result["is_banned"]:
-            return True
-
-        return False

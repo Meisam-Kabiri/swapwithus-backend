@@ -15,6 +15,7 @@ import os
 import urllib.parse
 
 import asyncpg  # type: ignore
+from fastapi import Request
 
 # Check if running on Cloud Run (K_SERVICE env var is set by Cloud Run)
 IS_CLOUD_RUN = os.getenv("K_SERVICE") is not None
@@ -64,18 +65,18 @@ async def create_asyncpg_pool():
     )
 
 
-def get_pool() -> asyncpg.Pool:
-    """Get database pool with runtime check (for scripts/migrations)"""
-    if _db_pool is None:
-        raise RuntimeError("Database pool not initialized")
-    return _db_pool
-
-
-def get_pool_from_request(request) -> asyncpg.Pool:
+def get_pool_from_request(request: Request) -> asyncpg.Pool:
     """Get database pool from app state (preferred for API endpoints)"""
     if not hasattr(request.app.state, 'db_pool'):
         raise RuntimeError("Database pool not initialized in app.state")
     return request.app.state.db_pool
+
+
+async def get_db_conn(request: Request) -> asyncpg.Connection:
+    """FastAPI dependency: acquire a connection from the app's pool for the request lifetime"""
+    pool = get_pool_from_request(request)
+    async with pool.acquire() as conn:
+        yield conn
 
 
 async def get_db_connection() -> asyncpg.Connection:
