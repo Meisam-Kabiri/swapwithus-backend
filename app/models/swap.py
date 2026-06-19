@@ -1,7 +1,8 @@
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.constants import LISTING_CATEGORIES
 from app.models.utils import snake_to_camel
 
 
@@ -11,9 +12,16 @@ class SwapCreate(BaseModel):
     user_b_uid: Annotated[str, Field(min_length=1, max_length=128)]
     listing_a_id: str  # UUID as string
     listing_b_id: str  # UUID as string
-    listing_a_category: Annotated[str, Field(min_length=1, max_length=50)]
-    listing_b_category: Annotated[str, Field(min_length=1, max_length=50)]
+    listing_a_category: str
+    listing_b_category: str
     conversation_id: str | None = None
+
+    @field_validator("listing_a_category", "listing_b_category")
+    @classmethod
+    def validate_category(cls, v: str) -> str:
+        if v not in LISTING_CATEGORIES:
+            raise ValueError(f"category must be one of {LISTING_CATEGORIES}")
+        return v
 
 
 class SwapUpdate(BaseModel):

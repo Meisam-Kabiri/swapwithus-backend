@@ -4,6 +4,7 @@ from datetime import datetime
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
+from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
@@ -195,6 +196,8 @@ async def get_my_swaps(
 
                 # Get listing titles from category-specific table
                 category = swap_dict["category"]
+                if category not in LISTING_CATEGORIES:
+                    continue
                 # Table names are just the category name (books, homes, clothes, caravans)
                 listings_table = category
 
@@ -304,18 +307,22 @@ async def get_swap(
             # Table names are just the category name (books, homes, clothes, caravans)
             listings_table = category
 
-            listing_query = f"""
-                SELECT listing_id, title
-                FROM {listings_table}
-                WHERE listing_id = $1 OR listing_id = $2
-            """
+            if category in LISTING_CATEGORIES:
+                listing_query = f"""
+                    SELECT listing_id, title
+                    FROM {listings_table}
+                    WHERE listing_id = $1 OR listing_id = $2
+                """
 
-            listings_rows = await conn.fetch(listing_query, swap_dict["listing_a_id"], swap_dict["listing_b_id"])
+                listings_rows = await conn.fetch(listing_query, swap_dict["listing_a_id"], swap_dict["listing_b_id"])
 
-            # Map listing IDs to titles
-            listing_titles = {str(row["listing_id"]): row["title"] for row in listings_rows}
-            swap_dict["listing_a_title"] = listing_titles.get(str(swap_dict["listing_a_id"]))
-            swap_dict["listing_b_title"] = listing_titles.get(str(swap_dict["listing_b_id"]))
+                # Map listing IDs to titles
+                listing_titles = {str(row["listing_id"]): row["title"] for row in listings_rows}
+                swap_dict["listing_a_title"] = listing_titles.get(str(swap_dict["listing_a_id"]))
+                swap_dict["listing_b_title"] = listing_titles.get(str(swap_dict["listing_b_id"]))
+            else:
+                swap_dict["listing_a_title"] = None
+                swap_dict["listing_b_title"] = None
 
             # Continue with existing conversion logic
 
