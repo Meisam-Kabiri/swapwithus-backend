@@ -27,6 +27,7 @@ from app.models.image import ImageMetadataCollection
 from app.models.user import FirebaseUserUpsert
 from app.services.gcp_image_service import (delete_all_images_from_storage,
                                             delete_image_from_storage, upload_photo_to_storage)
+from app.services.wishlist_matcher import match_new_listing_against_wishlists
 from app.utils.cdn_auth import make_urlprefix_token
 
 logger = logging.getLogger(__name__)
@@ -298,6 +299,16 @@ async def create_listing(
                   VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
               """
                 await conn.executemany(insert_query_image, image_data)
+
+                # Notify matching wishlists (Wishlist Magnet)
+                try:
+                    match_count = await match_new_listing_against_wishlists(
+                        conn, category, listing_data_dict
+                    )
+                    if match_count:
+                        logger.info(f"Listing {generated_listing_id} matched {match_count} wishlist(s)")
+                except Exception as match_error:
+                    logger.error(f"Wishlist matching failed for listing {generated_listing_id}: {match_error}")
 
         logger.info(f"Successfully created listing {generated_listing_id}")
 

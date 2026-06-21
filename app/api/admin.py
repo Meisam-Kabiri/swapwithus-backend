@@ -334,7 +334,7 @@ async def get_user_details(
   }
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/users/{user_id}/ban")
 @limiter.limit("20/hour")
 async def ban_user(
@@ -393,7 +393,7 @@ async def ban_user(
   }
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/users/{user_id}/unban")
 @limiter.limit("20/hour")
 async def unban_user(
@@ -439,7 +439,7 @@ async def unban_user(
   }
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/users/{user_id}/make-admin")
 @limiter.limit("5/hour")
 async def make_user_admin(
@@ -478,7 +478,7 @@ async def make_user_admin(
   }
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/users/{user_id}/remove-admin")
 @limiter.limit("5/hour")
 async def remove_admin_privileges(
@@ -615,7 +615,7 @@ async def get_report_details(
   return ReportWithDetails(**dict(report))
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/reports/{report_id}/resolve")
 @limiter.limit("30/hour")
 async def resolve_report(
@@ -689,7 +689,7 @@ async def resolve_report(
   }
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/reports/{report_id}/dismiss")
 @limiter.limit("30/hour")
 async def dismiss_report(
@@ -800,7 +800,7 @@ async def get_swaps(
   return [SwapManagement(**dict(s)) for s in swaps_dict]
 
 
-# RPC-style endpoint (not REST): Uses POST with action verb for clarity
+# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
 @router.post("/swaps/{swap_id}/cancel")
 @limiter.limit("20/hour")
 async def admin_cancel_swap(

@@ -5,6 +5,7 @@
 *.json.env
 env.yaml
 *.log
+.firebase-emulator-data/
 
 
 

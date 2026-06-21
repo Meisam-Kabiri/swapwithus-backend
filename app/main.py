@@ -9,6 +9,7 @@ from slowapi.errors import RateLimitExceeded
 import app.database.connection as db_connection
 # Include API routers
 from app.api.admin import router as admin_router
+from app.api.interest import router as interest_router
 from app.api.browse import router as browse_router
 from app.api.favorites import router as favorites_router
 from app.api.listings import router as listings_router
@@ -17,6 +18,7 @@ from app.api.reports import router as reports_router
 from app.api.reviews import router as reviews_router
 from app.api.swaps import router as swaps_router
 from app.api.users import router as users_router
+from app.api.wishlists import router as wishlists_router
 from app.database.connection import create_asyncpg_pool
 from app.middleware.rate_limit import custom_rate_limit_handler, limiter
 
@@ -78,6 +80,8 @@ app.include_router(swaps_router, prefix="/api")
 app.include_router(reviews_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
+app.include_router(interest_router, prefix="/api")
+app.include_router(wishlists_router, prefix="/api")
 
 
 @app.get("/api/health")
