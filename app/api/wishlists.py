@@ -1,6 +1,6 @@
 import logging
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool_from_request
@@ -29,10 +29,12 @@ def snake_to_camel_dict(data):
 
 @router.post("")
 @limiter.limit("20/hour")
-async def create_wishlist(request: Request, wishlist: WishlistCreate):
+async def create_wishlist(
+    request: Request,
+    wishlist: WishlistCreate,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """Create a new wishlist entry for the authenticated user."""
-    uid = extract_firebase_user_uid(request)
-
     if not wishlist.keywords and not wishlist.filters:
         raise HTTPException(status_code=400, detail="Provide at least one keyword or filter")
 
@@ -66,10 +68,11 @@ async def create_wishlist(request: Request, wishlist: WishlistCreate):
 
 @router.get("")
 @limiter.limit("60/minute")
-async def get_my_wishlists(request: Request):
+async def get_my_wishlists(
+    request: Request,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """List all wishlists belonging to the authenticated user."""
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             rows = await conn.fetch(
@@ -100,10 +103,13 @@ async def get_my_wishlists(request: Request):
 
 @router.patch("/{wishlist_id}")
 @limiter.limit("30/hour")
-async def update_wishlist(request: Request, wishlist_id: str, wishlist_update: WishlistUpdate):
+async def update_wishlist(
+    request: Request,
+    wishlist_id: str,
+    wishlist_update: WishlistUpdate,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """Update keywords, filters, or status of one of the authenticated user's wishlists."""
-    uid = extract_firebase_user_uid(request)
-
     update_fields = wishlist_update.model_dump(exclude_unset=True)
     if not update_fields:
         raise HTTPException(status_code=400, detail="No fields provided to update")
@@ -145,10 +151,12 @@ async def update_wishlist(request: Request, wishlist_id: str, wishlist_update: W
 
 @router.delete("/{wishlist_id}")
 @limiter.limit("30/hour")
-async def delete_wishlist(request: Request, wishlist_id: str):
+async def delete_wishlist(
+    request: Request,
+    wishlist_id: str,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """Delete one of the authenticated user's wishlists."""
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             result = await conn.execute(
@@ -171,13 +179,15 @@ async def delete_wishlist(request: Request, wishlist_id: str):
 
 @router.get("/matches")
 @limiter.limit("60/minute")
-async def get_my_matches(request: Request, unseen: bool = False):
+async def get_my_matches(
+    request: Request,
+    unseen: bool = False,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """
     Get matches for the authenticated user's wishlists, newest first.
     Pass ?unseen=true to get only matches not yet marked as seen (for the reveal-moment feed).
     """
-    uid = extract_firebase_user_uid(request)
-
     query = """
         SELECT m.match_id, m.wishlist_id, m.listing_id, m.category, m.matched_at, m.seen_at,
                w.keywords as wishlist_keywords
@@ -230,10 +240,12 @@ async def get_my_matches(request: Request, unseen: bool = False):
 
 @router.post("/matches/{match_id}/seen")
 @limiter.limit("60/minute")
-async def mark_match_seen(request: Request, match_id: str):
+async def mark_match_seen(
+    request: Request,
+    match_id: str,
+    uid: str = Depends(extract_firebase_user_uid),
+):
     """Mark a match as seen, once the reveal-moment animation has played."""
-    uid = extract_firebase_user_uid(request)
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
             result = await conn.execute(

@@ -9,15 +9,9 @@ wishlist volume per category is expected to be modest.
 import json
 import logging
 
-logger = logging.getLogger(__name__)
+from app.constants import SEARCHABLE_FIELDS_BY_CATEGORY
 
-# Listing fields concatenated into the searchable text per category.
-SEARCHABLE_FIELDS_BY_CATEGORY = {
-    "books": ["title", "author", "description", "genre_tags"],
-    "clothes": ["title", "brand", "color", "material", "description"],
-    "caravans": ["title", "make", "model", "description"],
-    "homes": ["title", "description"],
-}
+logger = logging.getLogger(__name__)
 
 
 def _build_searchable_text(category: str, listing_data: dict) -> str:

@@ -2,13 +2,14 @@ from typing import Annotated, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
+from app.constants import ListingCategory
 from app.models.utils import snake_to_camel
 
 
 class WishlistCreate(BaseModel):
     model_config = ConfigDict(alias_generator=snake_to_camel, populate_by_name=True)
 
-    category: Literal["homes", "books", "clothes", "caravans"]
+    category: ListingCategory
     keywords: Annotated[list[Annotated[str, Field(min_length=1, max_length=50)]], Field(max_length=20)] = []
     filters: dict = Field(default_factory=dict)
 
