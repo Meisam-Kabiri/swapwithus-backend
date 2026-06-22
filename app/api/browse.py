@@ -6,7 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
 from app.middleware.rate_limit import limiter
-from app.utils.cdn_auth import make_urlprefix_token
+from app.utils.cdn_auth import make_image_url_suffix
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -47,7 +47,8 @@ async def browse_homes(
 
     tick = time.time()
     try:
-        token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
+        # Full query suffix: "?<token>" in signed mode, "" in public mode.
+        image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
 
         # Calculate offset for pagination
         offset = (page - 1) * page_size
@@ -64,7 +65,7 @@ async def browse_homes(
                         'cdn_url',
                             'https://cdn.swapwithus.com/{category}/' ||
                             split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{category}/', 2) ||
-                            '?' || $1,
+                            $1,
                         'tag', i.tag,
                         'caption', i.caption,
                         'is_hero', i.is_hero,
@@ -106,7 +107,7 @@ async def browse_homes(
             total_count = await conn.fetchval(query_count)
 
             # Get paginated homes
-            fetched_listings = await conn.fetch(query_listings, token_prefix, page_size, offset)
+            fetched_listings = await conn.fetch(query_listings, image_url_suffix, page_size, offset)
             print(f"Fetched {len(fetched_listings)} {category} from DB")
 
             import math

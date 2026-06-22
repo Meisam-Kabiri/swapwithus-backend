@@ -6,10 +6,8 @@ from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from slowapi.errors import RateLimitExceeded
 
-import app.database.connection as db_connection
 # Include API routers
 from app.api.admin import router as admin_router
-from app.api.interest import router as interest_router
 from app.api.browse import router as browse_router
 from app.api.favorites import router as favorites_router
 from app.api.listings import router as listings_router
@@ -38,9 +36,6 @@ async def lifespan(app: FastAPI):
 
     # Store in app.state (for API endpoints)
     app.state.db_pool = pool
-
-    # Also keep global for scripts/migrations
-    db_connection._db_pool = pool
 
     logger.info("Database pool created at startup")
 
@@ -80,7 +75,6 @@ app.include_router(swaps_router, prefix="/api")
 app.include_router(reviews_router, prefix="/api")
 app.include_router(reports_router, prefix="/api")
 app.include_router(admin_router, prefix="/api")
-app.include_router(interest_router, prefix="/api")
 app.include_router(wishlists_router, prefix="/api")
 
 

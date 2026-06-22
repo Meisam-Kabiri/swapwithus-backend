@@ -28,7 +28,7 @@ from app.models.user import FirebaseUserUpsert
 from app.services.gcp_image_service import (delete_all_images_from_storage,
                                             delete_image_from_storage, upload_photo_to_storage)
 from app.services.wishlist_matcher import match_new_listing_against_wishlists
-from app.utils.cdn_auth import make_urlprefix_token
+from app.utils.cdn_auth import make_image_url_suffix
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -57,23 +57,23 @@ async def get_my_all_listings(
             "total": int
         }
     """
-    async def fetch_category(category: str, token: str):
+    async def fetch_category(category: str, image_url_suffix: str):
         """Fetch listings for a single category."""
         async with get_pool_from_request(request).acquire() as conn:
             query = QueryBuilder.build_get_listings_by_owner_id_query(category)
             logger.info(f"Fetching {category} listings for user {uid}")
-            return await conn.fetch(query, uid, token)
+            return await conn.fetch(query, uid, image_url_suffix)
 
     try:
-        # Generate CDN token (valid for all categories)
-        token = make_urlprefix_token("https://cdn.swapwithus.com/")
+        # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
+        image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
 
         # Fetch all categories in parallel (4 connections from pool)
         homes, books, clothes, caravans = await asyncio.gather(
-            fetch_category("homes", token),
-            fetch_category("books", token),
-            fetch_category("clothes", token),
-            fetch_category("caravans", token),
+            fetch_category("homes", image_url_suffix),
+            fetch_category("books", image_url_suffix),
+            fetch_category("clothes", image_url_suffix),
+            fetch_category("caravans", image_url_suffix),
         )
 
         def process_rows(rows, category=None):
@@ -184,6 +184,24 @@ async def create_listing(
 
     # STEP 1: Upload images FIRST (outside transaction) - IN PARALLEL
     # This prevents holding DB connections during slow uploads
+    #
+    # TODO(scaling): Move image bytes OFF this server entirely.
+    # Today every uploaded byte flows THROUGH this Cloud Run instance: we receive
+    # the full multipart payload, PIL-optimize each image (CPU heavy), then re-upload
+    # to GCS - all while the client's request hangs open. That costs upload bandwidth,
+    # memory and CPU on the request path, and risks OOM under concurrent uploads.
+    #
+    # Target architecture (do this when uploads start hurting, not before):
+    #   1. Client asks for upload slots -> this endpoint returns short-lived GCS
+    #      *signed upload URLs* (just signatures, no bytes touch us).
+    #   2. Client uploads each image DIRECTLY to GCS, bypassing this server.
+    #   3. Client posts back the object paths; we only write the listing + image
+    #      rows (tiny, fast) - no bytes, no PIL here.
+    #   4. A GCS "object finalized" event (Eventarc -> a Cloud Run worker, or
+    #      Cloud Tasks) does the resize/optimize/thumbnail OFF the request path.
+    #      If that worker dies mid-job it's retried durably (Cloud Run-safe),
+    #      unlike in-process background work which is killed on scale-in.
+    # Net: this endpoint handles only small JSON; heavy work is async + retryable.
 
     upload_tasks = [
         upload_photo_to_storage(images[i], listing_id=generated_listing_id, category=category)
@@ -300,15 +318,18 @@ async def create_listing(
               """
                 await conn.executemany(insert_query_image, image_data)
 
-                # Notify matching wishlists (Wishlist Magnet)
-                try:
-                    match_count = await match_new_listing_against_wishlists(
-                        conn, category, listing_data_dict
-                    )
-                    if match_count:
-                        logger.info(f"Listing {generated_listing_id} matched {match_count} wishlist(s)")
-                except Exception as match_error:
-                    logger.error(f"Wishlist matching failed for listing {generated_listing_id}: {match_error}")
+            # Notify matching wishlists (Wishlist Magnet).
+            # Runs AFTER the listing+images transaction has committed, so matching
+            # never holds the write transaction open. Best-effort: a failure here
+            # must not fail the listing that was already created.
+            try:
+                match_count = await match_new_listing_against_wishlists(
+                    conn, category, listing_data_dict
+                )
+                if match_count:
+                    logger.info(f"Listing {generated_listing_id} matched {match_count} wishlist(s)")
+            except Exception as match_error:
+                logger.error(f"Wishlist matching failed for listing {generated_listing_id}: {match_error}")
 
         logger.info(f"Successfully created listing {generated_listing_id}")
 
@@ -351,8 +372,8 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
         raise HTTPException(400, "Invalid category provided")
 
     try:
-        # Generate CDN token
-        token = make_urlprefix_token("https://cdn.swapwithus.com/")
+        # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
+        image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
 
         table_name = category
         gcloud_folder_name = category
@@ -366,7 +387,7 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
                             'public_url', i.public_url,
                             'cdn_url', 'https://cdn.swapwithus.com/{gcloud_folder_name}/' ||
                                 split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{gcloud_folder_name}/', 2) ||
-                                '?' || $2,
+                                $2,
                             'tag', i.tag,
                             'caption', i.caption,
                             'is_hero', i.is_hero,
@@ -379,7 +400,7 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
                 GROUP BY l.listing_id
                 ORDER BY l.created_at DESC;
                 """
-            listing = await conn.fetchrow(query, listing_id, token)
+            listing = await conn.fetchrow(query, listing_id, image_url_suffix)
             if not listing:
                 raise HTTPException(404, "Listing not found")
             # convert the images JSON string to list

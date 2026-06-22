@@ -51,10 +51,6 @@ else:
     print(f"💻 Local development mode: Connecting to {DB_HOST}")
 
 
-# Global pool instance
-_db_pool: asyncpg.Pool | None = None
-
-
 async def create_asyncpg_pool():
     """Get asyncpg connection pool for production - optimal for swap platform"""
     return await asyncpg.create_pool(

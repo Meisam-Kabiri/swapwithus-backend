@@ -127,7 +127,7 @@ class QueryBuilder:
                             'public_url', i.public_url,
                             'cdn_url', 'https://cdn.swapwithus.com/{gcloud_folder_name}/' ||
                                 split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{gcloud_folder_name}/', 2) ||
-                                '?' || $2,
+                                $2,
                             'tag', i.tag,
                             'caption', i.caption,
                             'is_hero', i.is_hero,
@@ -174,7 +174,7 @@ class QueryBuilder:
                             'public_url', i.public_url,
                             'signed_url', 'https://cdn.swapwithus.com/{category}/' ||
                                 split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{category}/', 2) ||
-                                '?' || $2,
+                                $2,
                             'tag', i.tag,
                             'caption', i.caption,
                             'is_hero', i.is_hero,

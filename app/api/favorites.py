@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
-from app.utils.cdn_auth import append_token_to_url, make_urlprefix_token
+from app.utils.cdn_auth import build_cdn_image_url
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -84,10 +84,8 @@ async def get_favorites(
             favorites = [dict(row) for row in favorite_rows]
             for favorite in favorites:
                 if favorite.get("hero_image_url"):
-                    favorite["signed_url"] = append_token_to_url(
-                        favorite["hero_image_url"],
-                        make_urlprefix_token("https://cdn.swapwithus.com"),
-                        category="homes",
+                    favorite["signed_url"] = build_cdn_image_url(
+                        favorite["hero_image_url"], category="homes"
                     )
             return favorites
         except Exception as e:

@@ -18,7 +18,6 @@ os.environ["FIRESTORE_EMULATOR_HOST"] = "127.0.0.1:8081"
 import pytest
 import pytest_asyncio
 
-import app.database.connection as db_connection
 from app.database.connection import ASYNCPG_URL, create_asyncpg_pool
 
 # SAFETY CHECK: Prevent tests from connecting to production GCP database
@@ -126,9 +125,7 @@ async def create_db_pool():
     # Create pool
     pool = await create_asyncpg_pool()
 
-    # Set in BOTH places for compatibility
-    db_connection._db_pool = pool  # For old code/migrations
-    app.state.db_pool = pool  # For API endpoints (new pattern)
+    app.state.db_pool = pool  # For API endpoints
 
     yield pool
 

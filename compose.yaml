@@ -21,6 +21,19 @@ services:
       - "6379:6379"
     volumes:
       - redis_data:/data
+
+  # Local Google Cloud Storage emulator (NOT a Google product - community image).
+  # Impersonates the GCS API so dev/test never touch a real bucket. Routed via
+  # STORAGE_EMULATOR_HOST in scripts/dev/run-local.sh.
+  gcs:
+    image: fsouza/fake-gcs-server:1.52
+    command: ["-scheme", "http", "-port", "4443", "-public-host", "localhost:4443", "-external-url", "http://localhost:4443"]
+    ports:
+      - "4443:4443"
+    volumes:
+      - gcs_data:/storage
+
 volumes:
   db_data:
   redis_data:
+  gcs_data:

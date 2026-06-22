@@ -9,7 +9,7 @@ from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
 from app.models.swap import SwapCreate, SwapUpdate
-from app.utils.cdn_auth import make_urlprefix_token
+from app.utils.cdn_auth import make_image_url_suffix
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -134,8 +134,8 @@ async def get_my_swaps(
     Get all swaps for the current user.
     Optionally filter by status.
     """
-    # Generate signed token for CDN URLs
-    token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
+    # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
+    image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
 
     query = """
         SELECT s.swap_id, s.created_at, s.updated_at, s.user_a_uid, s.user_b_uid,
@@ -159,7 +159,7 @@ async def get_my_swaps(
             SELECT
                 'https://cdn.swapwithus.com/' || s.category || '/' ||
                 split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                '?' || $2 as cdn_url
+                $2 as cdn_url
             FROM images
             WHERE listing_id = s.listing_a_id AND category = s.category
             ORDER BY is_hero DESC, sort_order ASC
@@ -169,7 +169,7 @@ async def get_my_swaps(
             SELECT
                 'https://cdn.swapwithus.com/' || s.category || '/' ||
                 split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                '?' || $2 as cdn_url
+                $2 as cdn_url
             FROM images
             WHERE listing_id = s.listing_b_id AND category = s.category
             ORDER BY is_hero DESC, sort_order ASC
@@ -178,7 +178,7 @@ async def get_my_swaps(
         WHERE s.user_a_uid = $1 OR s.user_b_uid = $1
     """
 
-    params = [uid, token_prefix]
+    params = [uid, image_url_suffix]
 
     if status:
         query += " AND s.status = $3"
@@ -244,8 +244,8 @@ async def get_swap(
     User must be participant in the swap.
     Returns swap with populated user and listing details.
     """
-    # Generate signed token for CDN URLs
-    token_prefix = make_urlprefix_token("https://cdn.swapwithus.com/")
+    # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
+    image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
 
     try:
         async with get_pool_from_request(request).acquire() as conn:
@@ -272,7 +272,7 @@ async def get_swap(
                     SELECT
                         'https://cdn.swapwithus.com/' || s.category || '/' ||
                         split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                        '?' || $3 as cdn_url
+                        $3 as cdn_url
                     FROM images
                     WHERE listing_id = s.listing_a_id AND category = s.category
                     ORDER BY is_hero DESC, sort_order ASC
@@ -282,7 +282,7 @@ async def get_swap(
                     SELECT
                         'https://cdn.swapwithus.com/' || s.category || '/' ||
                         split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                        '?' || $3 as cdn_url
+                        $3 as cdn_url
                     FROM images
                     WHERE listing_id = s.listing_b_id AND category = s.category
                     ORDER BY is_hero DESC, sort_order ASC
@@ -291,7 +291,7 @@ async def get_swap(
                 WHERE s.swap_id = $1
             """
 
-            swap_row = await conn.fetchrow(base_query, swap_id, uid, token_prefix)
+            swap_row = await conn.fetchrow(base_query, swap_id, uid, image_url_suffix)
 
             if not swap_row:
                 raise HTTPException(status_code=404, detail="Swap not found")

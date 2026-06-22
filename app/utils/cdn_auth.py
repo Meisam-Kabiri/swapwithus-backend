@@ -9,6 +9,19 @@ import requests
 signing_key = os.getenv("GOOGLE_CLOUD_CDN_SIGNING_KEY")  # Base64-encoded key
 key_name = os.getenv("GOOGLE_CLOUD_CDN_KEY_NAME")  # Key name in Cloud CDN
 
+# How listing-image URLs are served. Flip this ONE env var to switch the whole
+# app between time-limited signed CDN URLs and plain public CDN URLs - no code
+# change, fully reversible.
+#   "signed" (default): current behaviour, URLs carry a short-lived token.
+#   "public":           URLs are returned bare; set this ONLY after the bucket +
+#                       Cloud CDN are made publicly readable (otherwise images 403).
+# To roll back to signing, set it to "signed" and re-lock the bucket/CDN.
+IMAGE_URL_MODE = (os.getenv("IMAGE_URL_MODE") or "signed").strip().lower()
+
+
+def images_are_public() -> bool:
+    return IMAGE_URL_MODE == "public"
+
 
 def generate_signed_cookie(
     url_prefix="https://cdn.swapwithus.com/",
@@ -129,12 +142,32 @@ def make_urlprefix_token(
     return f"{policy}&Signature={sig_b64u}"
 
 
+def make_image_url_suffix(url_prefix: str, expires_in: int = 10 * 3600) -> str:
+    """Query suffix to append to a CDN image URL, honouring IMAGE_URL_MODE.
+
+    signed mode -> '?<urlprefix-token>'  (time-limited access)
+    public mode -> ''                    (served publicly, no token)
+    """
+    if images_are_public():
+        return ""
+    return "?" + make_urlprefix_token(url_prefix, expires_in=expires_in)
+
+
+def build_cdn_image_url(public_url: str, category: str) -> str:
+    """Final CDN URL for one image, honouring IMAGE_URL_MODE (signed vs public)."""
+    blob_name = public_url.split(f"storage.googleapis.com/swapwithus-listing-images/{category}/")[1]
+    base = f"https://cdn.swapwithus.com/{category}/{blob_name}"
+    return base + make_image_url_suffix("https://cdn.swapwithus.com/")
+
+
 def append_token_to_url(cdn_url: str, url_prefix_token: str, category: str) -> str:
-    """Append the url_prefix_token to the cdn_url."""
+    """Append the url_prefix_token to the cdn_url (no token in public mode)."""
     # extract blob name
     blob_name = cdn_url.split(f"storage.googleapis.com/swapwithus-listing-images/{category}/")[1]
 
     base = f"https://cdn.swapwithus.com/{category}/"
+    if images_are_public():
+        return f"{base}{blob_name}"
     return f"{base}{blob_name}?{url_prefix_token}"
 
 

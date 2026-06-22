@@ -15,6 +15,30 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 
+# --- Local GCS emulation -----------------------------------------------------
+# STORAGE_EMULATOR_HOST is set ONLY in local dev (scripts/dev/run-local.sh) and
+# points every GCS call at fake-gcs-server instead of real Google Cloud Storage.
+# In prod (Cloud Run) it is unset, so _get_storage_client() returns a normal
+# client and nothing below changes. fake-gcs-server does not verify signatures,
+# so signed URLs work end-to-end locally with a throwaway signing key.
+def _emulator_host() -> str | None:
+    return os.getenv("STORAGE_EMULATOR_HOST") or None
+
+
+def _get_storage_client() -> storage.Client:
+    """GCS client. Local: routed to fake-gcs-server with anonymous creds. Prod: real GCS."""
+    emulator = _emulator_host()
+    if emulator:
+        from google.auth.credentials import AnonymousCredentials
+
+        return storage.Client(
+            project=os.getenv("SWAPWITHUS_PROJECT_ID", "local-dev"),
+            credentials=AnonymousCredentials(),
+            client_options={"api_endpoint": emulator},
+        )
+    return storage.Client()
+
+
 def optimize_image(image_file, max_width=1200, quality=85):
     """
     Smart image optimization:
@@ -109,7 +133,7 @@ def _blocking_upload(file_content, bucket_name, blob_name):
     Running in thread pool prevents blocking the event loop.
     """
     # Initialize GCS client (thread-safe)
-    client = storage.Client()
+    client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
 
@@ -194,6 +218,27 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
         # Extract blob_name from public URL
         blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
 
+        # Local dev: sign against fake-gcs-server using a throwaway key.
+        # The signature isn't verified by the emulator; api_access_endpoint makes
+        # the URL point at the emulator instead of storage.googleapis.com.
+        emulator = _emulator_host()
+        if emulator:
+            from google.oauth2 import service_account
+
+            signing_key = os.getenv("LOCAL_GCS_SIGNING_KEY")
+            if not signing_key:
+                raise RuntimeError(
+                    "LOCAL_GCS_SIGNING_KEY is required to sign URLs against the GCS emulator"
+                )
+            signer = service_account.Credentials.from_service_account_file(signing_key)
+            blob = _get_storage_client().bucket(bucket_name).blob(blob_name)
+            return blob.generate_signed_url(
+                expiration=timedelta(seconds=expires_seconds),
+                version="v4",
+                credentials=signer,
+                api_access_endpoint=emulator,
+            )
+
         # Check if running on Cloud Run (no private key available)
         if os.getenv("K_SERVICE"):
             # Use IAM signBlob API - keyless signing on Cloud Run
@@ -225,8 +270,8 @@ def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
 
             return signed_url
         else:
-            # Local development - use standard signing
-            client = storage.Client()
+            # Local development against real GCS - use standard signing
+            client = _get_storage_client()
             bucket = client.bucket(bucket_name)
             blob = bucket.blob(blob_name)
 
@@ -258,7 +303,7 @@ def delete_image_from_storage(public_url: str) -> bool:
         logger.info(f"Attempting to delete blob: {blob_name} from bucket: {bucket_name}")
 
         """Run GCS delete in thread pool to avoid blocking event loop"""
-        client = storage.Client()
+        client = _get_storage_client()
         bucket = client.bucket(bucket_name)
         blob = bucket.blob(blob_name)
         blob.delete()
