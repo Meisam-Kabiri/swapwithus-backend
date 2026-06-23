@@ -1,35 +1,49 @@
+"""
+Swap API - unified on the chain engine (swap_chains + swap_legs).
+
+A direct 2-person swap is just a chain with 2 legs, so every endpoint here drives
+the same engine in app/services/swap_chain_service.py:
+
+  - POST /swaps                     direct request: I offer my listing for yours
+                                    (creates a 2-leg chain; my leg is pre-accepted)
+  - GET  /swaps                     my chains (optionally ?status=)
+  - GET  /swaps/{chain_id}          one chain's detail
+  - POST /swaps/{chain_id}/accept   a giver accepts their leg
+  - POST /swaps/{chain_id}/decline  cancel/decline (any participant)
+  - POST /swaps/{chain_id}/confirm-receipt   a receiver confirms they got the item
+  - POST /swaps/{chain_id}/cancel   cancel (any participant)
+
+System-discovered multi-way chains (from wishlist cycle detection) reuse the same
+service + the same accept/confirm/cancel endpoints; only their creation differs.
+"""
+
 import logging
-from datetime import datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
-from app.models.swap import SwapCreate, SwapUpdate
-from app.utils.cdn_auth import make_image_url_suffix
+from app.models.swap import ChainProposeRequest, SwapCreate
+from app.services import swap_chain_service as svc
+from app.services.swap_chain_finder import SwapEdge
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
 
-
 router = APIRouter(prefix="/swaps", tags=["swaps"])
 
 
-def snake_to_camel_dict(data):
-    """Convert snake_case keys to camelCase in dict"""
-    if not isinstance(data, dict):
-        return data
-
-    result = {}
-    for key, value in data.items():
-        # Convert snake_case to camelCase
-        parts = key.split('_')
-        camel_key = parts[0] + ''.join(word.capitalize() for word in parts[1:])
-        result[camel_key] = value
-    return result
+def _raise_http(e: Exception) -> None:
+    """Map service-layer errors to HTTP responses."""
+    if isinstance(e, PermissionError):
+        raise HTTPException(status_code=403, detail=str(e))
+    if isinstance(e, LookupError):
+        raise HTTPException(status_code=404, detail=str(e))
+    if isinstance(e, ValueError):
+        raise HTTPException(status_code=400, detail=str(e))
+    raise e
 
 
 @router.post("")
@@ -37,89 +51,51 @@ def snake_to_camel_dict(data):
 async def create_swap(
     request: Request,
     swap: SwapCreate,
-    user_a_uid: str = Depends(extract_firebase_user_uid),
+    my_uid: str = Depends(extract_firebase_user_uid),
 ):
     """
-    Create a new swap request.
-    User A initiates swap with User B.
+    Direct request: I offer my own listing in exchange for the one I want. The
+    other party (their_listing's owner) is resolved server-side - the client never
+    sends it. Creates a 2-leg chain; my leg is pre-accepted, they must accept.
     """
-    # Verify user is not swapping with themselves
-    if user_a_uid == swap.user_b_uid:
-        raise HTTPException(status_code=400, detail="Cannot create swap with yourself")
-
-    # Verify both listings are from the same category
-    if swap.listing_a_category != swap.listing_b_category:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Cannot swap items from different categories. Both listings must be from the same category."
-        )
-
-    swap_dict = swap.model_dump()
-    swap_dict["user_a_uid"] = user_a_uid
-    swap_dict["status"] = "pending"
-
-    query = """
-        INSERT INTO swaps (user_a_uid, user_b_uid, listing_a_id, listing_b_id, category, conversation_id, status, initiated_at)
-        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW())
-        RETURNING swap_id, created_at, updated_at, user_a_uid, user_b_uid, listing_a_id, listing_b_id, category,
-                  status, conversation_id, user_a_confirmed, user_b_confirmed, initiated_at
-    """
-
     try:
         async with get_pool_from_request(request).acquire() as conn:
-            # Check for existing active swap between these users with same listings
-            existing_swap = await conn.fetchrow(
-                """
-                SELECT swap_id, status FROM swaps
-                WHERE ((user_a_uid = $1 AND user_b_uid = $2) OR (user_a_uid = $2 AND user_b_uid = $1))
-                AND ((listing_a_id = $3 AND listing_b_id = $4) OR (listing_a_id = $4 AND listing_b_id = $3))
-                AND status IN ('pending', 'accepted')
-                """,
-                user_a_uid,
-                swap_dict["user_b_uid"],
-                swap_dict["listing_a_id"],
-                swap_dict["listing_b_id"],
+            # Resolve both owners from the listings themselves.
+            my_listing_owner = await svc.get_listing_owner(
+                conn, swap.my_listing_category, swap.my_listing_id
             )
-
-            if existing_swap:
-                status = existing_swap['status']
-                logger.warning(f"Duplicate swap attempt blocked: existing swap with status '{status}'")
-                raise HTTPException(
-                    status_code=400,
-                    detail=f"An active swap request already exists (status: {status}). Please check your swaps page."
-                )
-
-            swap_row = await conn.fetchrow(
-                query,
-                user_a_uid,
-                swap_dict["user_b_uid"],
-                swap_dict["listing_a_id"],
-                swap_dict["listing_b_id"],
-                swap_dict["listing_a_category"],  # Since both categories are the same, use either one
-                swap_dict.get("conversation_id"),
-                "pending",
+            their_listing_owner = await svc.get_listing_owner(
+                conn, swap.their_listing_category, swap.their_listing_id
             )
+            if my_listing_owner is None:
+                raise HTTPException(status_code=404, detail="Your listing was not found")
+            if their_listing_owner is None:
+                raise HTTPException(status_code=404, detail="The requested listing was not found")
+            # You can only offer YOUR item.
+            if my_listing_owner != my_uid:
+                raise HTTPException(status_code=403, detail="You can only offer your own listing")
+            # The other party is whoever owns the listing I want; not myself.
+            their_uid = their_listing_owner
+            if their_uid == my_uid:
+                raise HTTPException(status_code=400, detail="Cannot create swap with yourself")
 
-            if not swap_row:
-                raise HTTPException(status_code=500, detail="Failed to create swap")
-
-            result = dict(swap_row)
-            # Convert UUID to string
-            result["swap_id"] = str(result["swap_id"])
-            result["listing_a_id"] = str(result["listing_a_id"])
-            result["listing_b_id"] = str(result["listing_b_id"])
-            # Convert datetime to ISO string
-            result["created_at"] = result["created_at"].isoformat()
-            result["updated_at"] = result["updated_at"].isoformat()
-            result["initiated_at"] = result["initiated_at"].isoformat()
-
-            logger.info(f"Created swap {result['swap_id']} between {user_a_uid} and {swap_dict['user_b_uid']}")
-            return JSONResponse(status_code=201, content=snake_to_camel_dict(result))
+            legs = [
+                # I give my listing to them (pre-accepted below)
+                SwapEdge(my_uid, their_uid, swap.my_listing_id, swap.my_listing_category),
+                # they give their listing to me (they must still accept)
+                SwapEdge(their_uid, my_uid, swap.their_listing_id, swap.their_listing_category),
+            ]
+            chain = await svc.propose_chain(
+                conn, legs, conversation_id=swap.conversation_id, auto_accept_from_user=my_uid
+            )
+            return JSONResponse(status_code=201, content=chain)
 
     except HTTPException:
         raise
+    except (ValueError, PermissionError, LookupError) as e:
+        _raise_http(e)
     except Exception as e:
-        logger.error(f"Error creating swap: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"Error creating swap: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to create swap. Please try again.")
 
 
@@ -130,489 +106,148 @@ async def get_my_swaps(
     status: str | None = None,
     uid: str = Depends(extract_firebase_user_uid),
 ):
-    """
-    Get all swaps for the current user.
-    Optionally filter by status.
-    """
-    # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
-    image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
-
-    query = """
-        SELECT s.swap_id, s.created_at, s.updated_at, s.user_a_uid, s.user_b_uid,
-               s.listing_a_id, s.listing_b_id, s.category, s.status, s.conversation_id,
-               s.user_a_confirmed, s.user_b_confirmed, s.completed_at,
-               s.initiated_at, s.accepted_at, s.cancelled_at, s.cancelled_by, s.cancellation_reason,
-               CASE
-                   WHEN s.user_a_uid = $1 THEN u_b.name
-                   ELSE u_a.name
-               END as other_user_name,
-               CASE
-                   WHEN s.user_a_uid = $1 THEN u_b.profile_image
-                   ELSE u_a.profile_image
-               END as other_user_image,
-               img_a.cdn_url as listing_a_image,
-               img_b.cdn_url as listing_b_image
-        FROM swaps s
-        LEFT JOIN users u_a ON s.user_a_uid = u_a.owner_firebase_uid
-        LEFT JOIN users u_b ON s.user_b_uid = u_b.owner_firebase_uid
-        LEFT JOIN LATERAL (
-            SELECT
-                'https://cdn.swapwithus.com/' || s.category || '/' ||
-                split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                $2 as cdn_url
-            FROM images
-            WHERE listing_id = s.listing_a_id AND category = s.category
-            ORDER BY is_hero DESC, sort_order ASC
-            LIMIT 1
-        ) img_a ON true
-        LEFT JOIN LATERAL (
-            SELECT
-                'https://cdn.swapwithus.com/' || s.category || '/' ||
-                split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                $2 as cdn_url
-            FROM images
-            WHERE listing_id = s.listing_b_id AND category = s.category
-            ORDER BY is_hero DESC, sort_order ASC
-            LIMIT 1
-        ) img_b ON true
-        WHERE s.user_a_uid = $1 OR s.user_b_uid = $1
-    """
-
-    params = [uid, image_url_suffix]
-
-    if status:
-        query += " AND s.status = $3"
-        params.append(status)
-
-    query += " ORDER BY s.created_at DESC"
-
+    """All swaps the user participates in, newest first. Optional ?status= filter."""
     try:
         async with get_pool_from_request(request).acquire() as conn:
-            rows = await conn.fetch(query, *params)
-
-            swaps = []
-            for row in rows:
-                swap_dict = dict(row)
-
-                # Get listing titles from category-specific table
-                category = swap_dict["category"]
-                if category not in LISTING_CATEGORIES:
-                    continue
-                # Table names are just the category name (books, homes, clothes, caravans)
-                listings_table = category
-
-                listing_query = f"""
-                    SELECT listing_id, title
-                    FROM {listings_table}
-                    WHERE listing_id = $1 OR listing_id = $2
-                """
-
-                listings_rows = await conn.fetch(listing_query, swap_dict["listing_a_id"], swap_dict["listing_b_id"])
-
-                # Map listing IDs to titles
-                listing_titles = {str(row["listing_id"]): row["title"] for row in listings_rows}
-                swap_dict["listing_a_title"] = listing_titles.get(str(swap_dict["listing_a_id"]))
-                swap_dict["listing_b_title"] = listing_titles.get(str(swap_dict["listing_b_id"]))
-
-                # Convert UUID to string
-                swap_dict["swap_id"] = str(swap_dict["swap_id"])
-                swap_dict["listing_a_id"] = str(swap_dict["listing_a_id"])
-                swap_dict["listing_b_id"] = str(swap_dict["listing_b_id"])
-                # Convert datetime fields to ISO strings
-                for field in ["created_at", "updated_at", "initiated_at", "accepted_at", "cancelled_at", "completed_at"]:
-                    if swap_dict.get(field):
-                        swap_dict[field] = swap_dict[field].isoformat()
-
-                swaps.append(snake_to_camel_dict(swap_dict))
-
-            return JSONResponse(status_code=200, content={"swaps": swaps})
-
+            chains = await svc.get_user_chains(conn, uid, status=status)
+            return JSONResponse(status_code=200, content={"swaps": chains})
     except Exception as e:
-        logger.error(f"Error fetching swaps for user {uid}: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"Error fetching swaps for {uid}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch swaps. Please try again.")
 
 
-@router.get("/{swap_id}")
+@router.get("/suggestions")
+@limiter.limit("60/minute")
+async def get_swap_suggestions(
+    request: Request,
+    uid: str = Depends(extract_firebase_user_uid),
+):
+    """
+    System-discovered swap suggestions for the user (2- and 3-way loops found in
+    wishlist matches). Read-only - nothing is created until the user proposes one.
+    Defined before /{chain_id} so 'suggestions' isn't read as a chain id.
+    """
+    try:
+        async with get_pool_from_request(request).acquire() as conn:
+            suggestions = await svc.find_suggested_chains(conn, uid)
+            return JSONResponse(status_code=200, content={"suggestions": suggestions})
+    except Exception as e:
+        logger.error(f"Error finding suggestions for {uid}: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to find swap suggestions. Please try again.")
+
+
+@router.post("/suggestions/propose")
+@limiter.limit("20/hour")
+async def propose_suggested_swap(
+    request: Request,
+    body: ChainProposeRequest,
+    uid: str = Depends(extract_firebase_user_uid),
+):
+    """Materialise a suggested chain into a real pending swap (your leg pre-accepted)."""
+    legs = [
+        SwapEdge(leg.from_user, leg.to_user, leg.listing_id, leg.category) for leg in body.legs
+    ]
+    try:
+        async with get_pool_from_request(request).acquire() as conn:
+            chain = await svc.propose_suggested_chain(conn, uid, legs)
+            return JSONResponse(status_code=201, content=chain)
+    except (ValueError, PermissionError, LookupError) as e:
+        _raise_http(e)
+    except Exception as e:
+        logger.error(f"Error proposing suggested swap: {type(e).__name__}: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail="Failed to propose swap. Please try again.")
+
+
+@router.get("/{chain_id}")
 @limiter.limit("100/minute")
 async def get_swap(
     request: Request,
-    swap_id: str,
+    chain_id: str,
     uid: str = Depends(extract_firebase_user_uid),
 ):
-    """
-    Get details of a specific swap.
-    User must be participant in the swap.
-    Returns swap with populated user and listing details.
-    """
-    # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
-    image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
-
+    """One swap's detail (participants only)."""
     try:
         async with get_pool_from_request(request).acquire() as conn:
-            # First, get the swap with category to determine which listings table to query
-            base_query = """
-                SELECT s.swap_id, s.created_at, s.updated_at, s.user_a_uid, s.user_b_uid,
-                       s.listing_a_id, s.listing_b_id, s.category, s.status, s.conversation_id,
-                       s.user_a_confirmed, s.user_b_confirmed, s.completed_at,
-                       s.initiated_at, s.accepted_at, s.cancelled_at, s.cancelled_by, s.cancellation_reason,
-                       CASE
-                           WHEN s.user_a_uid = $2 THEN u_b.name
-                           ELSE u_a.name
-                       END as other_user_name,
-                       CASE
-                           WHEN s.user_a_uid = $2 THEN u_b.profile_image
-                           ELSE u_a.profile_image
-                       END as other_user_image,
-                       img_a.cdn_url as listing_a_image,
-                       img_b.cdn_url as listing_b_image
-                FROM swaps s
-                LEFT JOIN users u_a ON s.user_a_uid = u_a.owner_firebase_uid
-                LEFT JOIN users u_b ON s.user_b_uid = u_b.owner_firebase_uid
-                LEFT JOIN LATERAL (
-                    SELECT
-                        'https://cdn.swapwithus.com/' || s.category || '/' ||
-                        split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                        $3 as cdn_url
-                    FROM images
-                    WHERE listing_id = s.listing_a_id AND category = s.category
-                    ORDER BY is_hero DESC, sort_order ASC
-                    LIMIT 1
-                ) img_a ON true
-                LEFT JOIN LATERAL (
-                    SELECT
-                        'https://cdn.swapwithus.com/' || s.category || '/' ||
-                        split_part(public_url, 'storage.googleapis.com/swapwithus-listing-images/' || s.category || '/', 2) ||
-                        $3 as cdn_url
-                    FROM images
-                    WHERE listing_id = s.listing_b_id AND category = s.category
-                    ORDER BY is_hero DESC, sort_order ASC
-                    LIMIT 1
-                ) img_b ON true
-                WHERE s.swap_id = $1
-            """
-
-            swap_row = await conn.fetchrow(base_query, swap_id, uid, image_url_suffix)
-
-            if not swap_row:
-                raise HTTPException(status_code=404, detail="Swap not found")
-
-            swap_dict = dict(swap_row)
-
-            # Verify user is participant
-            if swap_dict["user_a_uid"] != uid and swap_dict["user_b_uid"] != uid:
-                raise HTTPException(status_code=403, detail="Not authorized to view this swap")
-
-            # Get listing titles from category-specific table
-            category = swap_dict["category"]
-            # Table names are just the category name (books, homes, clothes, caravans)
-            listings_table = category
-
-            if category in LISTING_CATEGORIES:
-                listing_query = f"""
-                    SELECT listing_id, title
-                    FROM {listings_table}
-                    WHERE listing_id = $1 OR listing_id = $2
-                """
-
-                listings_rows = await conn.fetch(listing_query, swap_dict["listing_a_id"], swap_dict["listing_b_id"])
-
-                # Map listing IDs to titles
-                listing_titles = {str(row["listing_id"]): row["title"] for row in listings_rows}
-                swap_dict["listing_a_title"] = listing_titles.get(str(swap_dict["listing_a_id"]))
-                swap_dict["listing_b_title"] = listing_titles.get(str(swap_dict["listing_b_id"]))
-            else:
-                swap_dict["listing_a_title"] = None
-                swap_dict["listing_b_title"] = None
-
-            # Continue with existing conversion logic
-
-            # Convert UUID to string
-            swap_dict["swap_id"] = str(swap_dict["swap_id"])
-            swap_dict["listing_a_id"] = str(swap_dict["listing_a_id"])
-            swap_dict["listing_b_id"] = str(swap_dict["listing_b_id"])
-            # Convert datetime fields to ISO strings
-            for field in ["created_at", "updated_at", "initiated_at", "accepted_at", "cancelled_at", "completed_at"]:
-                if swap_dict.get(field):
-                    swap_dict[field] = swap_dict[field].isoformat()
-
-            return JSONResponse(status_code=200, content=snake_to_camel_dict(swap_dict))
-
-    except HTTPException:
-        raise
+            chain = await svc.get_chain(conn, chain_id, uid)
+            return JSONResponse(status_code=200, content=chain)
+    except (ValueError, PermissionError, LookupError) as e:
+        _raise_http(e)
     except Exception as e:
-        logger.error(f"Error fetching swap {swap_id}: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"Error fetching swap {chain_id}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to fetch swap. Please try again.")
 
 
-# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
-@router.post("/{swap_id}/accept")
-@limiter.limit("20/hour")
+@router.post("/{chain_id}/accept")
+@limiter.limit("60/minute")
 async def accept_swap(
     request: Request,
-    swap_id: str,
+    chain_id: str,
     uid: str = Depends(extract_firebase_user_uid),
 ):
-    """
-    Accept a swap request.
-    Only user_b can accept.
-    """
+    """A giver accepts their leg. When everyone has accepted, the swap is on."""
     try:
         async with get_pool_from_request(request).acquire() as conn:
-            # Get current swap
-            swap_row = await conn.fetchrow("SELECT user_a_uid, user_b_uid, status FROM swaps WHERE swap_id = $1", swap_id)
-
-            if not swap_row:
-                raise HTTPException(status_code=404, detail="Swap not found")
-
-            # Verify user is user_b
-            if swap_row["user_b_uid"] != uid:
-                raise HTTPException(status_code=403, detail="Only the recipient can accept the swap")
-
-            # Verify status is pending
-            if swap_row["status"] != "pending":
-                raise HTTPException(status_code=400, detail="Swap is not pending")
-
-            # Update to accepted
-            result = await conn.execute(
-                """
-                UPDATE swaps
-                SET status = 'accepted', accepted_at = NOW(), updated_at = NOW()
-                WHERE swap_id = $1
-                """,
-                swap_id,
-            )
-
-            if result == "UPDATE 0":
-                raise HTTPException(status_code=404, detail="Swap not found")
-
-            logger.info(f"User {uid} accepted swap {swap_id}")
-            return JSONResponse(status_code=200, content={"message": "Swap accepted successfully"})
-
-    except HTTPException:
-        raise
+            chain = await svc.accept_chain(conn, chain_id, uid)
+            return JSONResponse(status_code=200, content=chain)
+    except (ValueError, PermissionError, LookupError) as e:
+        _raise_http(e)
     except Exception as e:
-        logger.error(f"Error accepting swap {swap_id}: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"Error accepting swap {chain_id}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to accept swap. Please try again.")
 
 
-# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
-@router.post("/{swap_id}/decline")
-@limiter.limit("20/hour")
+@router.post("/{chain_id}/decline")
+@limiter.limit("60/minute")
 async def decline_swap(
     request: Request,
-    swap_id: str,
-    swap_update: SwapUpdate,
+    chain_id: str,
     uid: str = Depends(extract_firebase_user_uid),
 ):
-    """
-    Decline a swap request.
-    Only user_b can decline.
-    """
+    """Decline a swap (any participant) - same effect as cancel before completion."""
     try:
         async with get_pool_from_request(request).acquire() as conn:
-            # Get current swap
-            swap_row = await conn.fetchrow("SELECT user_a_uid, user_b_uid, status FROM swaps WHERE swap_id = $1", swap_id)
-
-            if not swap_row:
-                raise HTTPException(status_code=404, detail="Swap not found")
-
-            # Verify user is user_b
-            if swap_row["user_b_uid"] != uid:
-                raise HTTPException(status_code=403, detail="Only the recipient can decline the swap")
-
-            # Verify status is pending
-            if swap_row["status"] != "pending":
-                raise HTTPException(status_code=400, detail="Swap is not pending")
-
-            # Update to cancelled
-            result = await conn.execute(
-                """
-                UPDATE swaps
-                SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $1,
-                    cancellation_reason = $2, updated_at = NOW()
-                WHERE swap_id = $3
-                """,
-                uid,
-                swap_update.cancellation_reason,
-                swap_id,
-            )
-
-            if result == "UPDATE 0":
-                raise HTTPException(status_code=404, detail="Swap not found")
-
-            logger.info(f"User {uid} declined swap {swap_id}")
-            return JSONResponse(status_code=200, content={"message": "Swap declined successfully"})
-
-    except HTTPException:
-        raise
+            chain = await svc.cancel_chain(conn, chain_id, uid)
+            return JSONResponse(status_code=200, content=chain)
+    except (ValueError, PermissionError, LookupError) as e:
+        _raise_http(e)
     except Exception as e:
-        logger.error(f"Error declining swap {swap_id}: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"Error declining swap {chain_id}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to decline swap. Please try again.")
 
 
-# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
-@router.post("/{swap_id}/confirm-receipt")
-@limiter.limit("20/hour")
+@router.post("/{chain_id}/confirm-receipt")
+@limiter.limit("60/minute")
 async def confirm_receipt(
     request: Request,
-    swap_id: str,
+    chain_id: str,
     uid: str = Depends(extract_firebase_user_uid),
 ):
-    """
-    Confirm receipt of swapped item.
-    When both users confirm, swap status changes to 'completed'.
-    """
+    """A receiver confirms they got their item. Last confirmation completes the swap."""
     try:
         async with get_pool_from_request(request).acquire() as conn:
-            async with conn.transaction():
-                # Get current swap
-                swap_row = await conn.fetchrow(
-                    "SELECT user_a_uid, user_b_uid, status, user_a_confirmed, user_b_confirmed FROM swaps WHERE swap_id = $1 FOR UPDATE",
-                    swap_id,
-                )
-
-                if not swap_row:
-                    raise HTTPException(status_code=404, detail="Swap not found")
-
-                # Verify user is participant
-                if swap_row["user_a_uid"] != uid and swap_row["user_b_uid"] != uid:
-                    raise HTTPException(status_code=403, detail="Not authorized to confirm this swap")
-
-                # Verify status is accepted
-                if swap_row["status"] != "accepted":
-                    raise HTTPException(status_code=400, detail="Swap must be accepted before confirming receipt")
-
-                # Determine which user is confirming
-                is_user_a = swap_row["user_a_uid"] == uid
-                user_a_confirmed = swap_row["user_a_confirmed"]
-                user_b_confirmed = swap_row["user_b_confirmed"]
-
-                # Check if already confirmed
-                if (is_user_a and user_a_confirmed) or (not is_user_a and user_b_confirmed):
-                    raise HTTPException(status_code=400, detail="You have already confirmed receipt")
-
-                # Update confirmation
-                if is_user_a:
-                    user_a_confirmed = True
-                else:
-                    user_b_confirmed = True
-
-                # Check if both confirmed
-                both_confirmed = user_a_confirmed and user_b_confirmed
-
-                if both_confirmed:
-                    # Mark as completed
-                    await conn.execute(
-                        """
-                        UPDATE swaps
-                        SET user_a_confirmed = $1, user_b_confirmed = $2,
-                            status = 'completed', completed_at = NOW(), updated_at = NOW()
-                        WHERE swap_id = $3
-                        """,
-                        user_a_confirmed,
-                        user_b_confirmed,
-                        swap_id,
-                    )
-
-                    # Update user stats
-                    await conn.execute(
-                        """
-                        UPDATE users
-                        SET total_swaps_completed = total_swaps_completed + 1,
-                            last_swap_at = NOW()
-                        WHERE owner_firebase_uid = $1 OR owner_firebase_uid = $2
-                        """,
-                        swap_row["user_a_uid"],
-                        swap_row["user_b_uid"],
-                    )
-
-                    logger.info(f"Swap {swap_id} completed by both users")
-                    return JSONResponse(
-                        status_code=200, content={"message": "Swap completed! Both parties confirmed receipt."}
-                    )
-                else:
-                    # Just update confirmation
-                    await conn.execute(
-                        """
-                        UPDATE swaps
-                        SET user_a_confirmed = $1, user_b_confirmed = $2, updated_at = NOW()
-                        WHERE swap_id = $3
-                        """,
-                        user_a_confirmed,
-                        user_b_confirmed,
-                        swap_id,
-                    )
-
-                    logger.info(f"User {uid} confirmed receipt for swap {swap_id}")
-                    return JSONResponse(
-                        status_code=200, content={"message": "Receipt confirmed. Waiting for other party to confirm."}
-                    )
-
-    except HTTPException:
-        raise
+            chain = await svc.confirm_receipt(conn, chain_id, uid)
+            return JSONResponse(status_code=200, content=chain)
+    except (ValueError, PermissionError, LookupError) as e:
+        _raise_http(e)
     except Exception as e:
-        logger.error(f"Error confirming receipt for swap {swap_id}: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"Error confirming receipt {chain_id}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to confirm receipt. Please try again.")
 
 
-# Action-oriented endpoint: Uses POST with action verb for clarity (not pure REST, not pure RPC)
-@router.post("/{swap_id}/cancel")
-@limiter.limit("20/hour")
+@router.post("/{chain_id}/cancel")
+@limiter.limit("60/minute")
 async def cancel_swap(
     request: Request,
-    swap_id: str,
-    swap_update: SwapUpdate,
+    chain_id: str,
     uid: str = Depends(extract_firebase_user_uid),
 ):
-    """
-    Cancel a swap.
-    Either party can cancel before completion.
-    """
+    """Cancel a swap that hasn't completed yet (any participant)."""
     try:
         async with get_pool_from_request(request).acquire() as conn:
-            # Get current swap
-            swap_row = await conn.fetchrow(
-                "SELECT user_a_uid, user_b_uid, status FROM swaps WHERE swap_id = $1", swap_id
-            )
-
-            if not swap_row:
-                raise HTTPException(status_code=404, detail="Swap not found")
-
-            # Verify user is participant
-            if swap_row["user_a_uid"] != uid and swap_row["user_b_uid"] != uid:
-                raise HTTPException(status_code=403, detail="Not authorized to cancel this swap")
-
-            # Verify status is not already completed or cancelled
-            if swap_row["status"] == "completed":
-                raise HTTPException(status_code=400, detail="Cannot cancel completed swap")
-
-            if swap_row["status"] == "cancelled":
-                raise HTTPException(status_code=400, detail="Swap is already cancelled")
-
-            # Update to cancelled
-            result = await conn.execute(
-                """
-                UPDATE swaps
-                SET status = 'cancelled', cancelled_at = NOW(), cancelled_by = $1,
-                    cancellation_reason = $2, updated_at = NOW()
-                WHERE swap_id = $3
-                """,
-                uid,
-                swap_update.cancellation_reason,
-                swap_id,
-            )
-
-            if result == "UPDATE 0":
-                raise HTTPException(status_code=404, detail="Swap not found")
-
-            logger.info(f"User {uid} cancelled swap {swap_id}")
-            return JSONResponse(status_code=200, content={"message": "Swap cancelled successfully"})
-
-    except HTTPException:
-        raise
+            chain = await svc.cancel_chain(conn, chain_id, uid)
+            return JSONResponse(status_code=200, content=chain)
+    except (ValueError, PermissionError, LookupError) as e:
+        _raise_http(e)
     except Exception as e:
-        logger.error(f"Error cancelling swap {swap_id}: {type(e).__name__}: {str(e)}", exc_info=True)
+        logger.error(f"Error cancelling swap {chain_id}: {type(e).__name__}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail="Failed to cancel swap. Please try again.")
-
-
-#TODO: IF THE REQUEST OF SWAPS IS ACCEPTED, WE SHOULD NOT ALLOW ANYMORE NEW REQUESTS FROM EITHER USER UNTIL THE CURRENT SWAP IS COMPLETED OR CANCELLED.

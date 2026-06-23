@@ -54,8 +54,9 @@ def upgrade() -> None:
             listing_id UUID NOT NULL,
             category VARCHAR(20) NOT NULL,
 
-            -- denormalized for a fast "my matches" lookup without joining wishlists
-            owner_firebase_uid VARCHAR(128) NOT NULL REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
+            -- the WANTER: owner of the matched wishlist (the one who wants the item).
+            -- denormalized for a fast "my matches" lookup without joining wishlists.
+            wanter_firebase_uid VARCHAR(128) NOT NULL REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
 
             matched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             seen_at TIMESTAMPTZ,
@@ -63,7 +64,7 @@ def upgrade() -> None:
             UNIQUE (wishlist_id, listing_id)
         );
 
-        CREATE INDEX IF NOT EXISTS idx_wishlist_matches_owner ON wishlist_matches(owner_firebase_uid, seen_at);
+        CREATE INDEX IF NOT EXISTS idx_wishlist_matches_wanter ON wishlist_matches(wanter_firebase_uid, seen_at);
         CREATE INDEX IF NOT EXISTS idx_wishlist_matches_listing ON wishlist_matches(listing_id);
     """)
 

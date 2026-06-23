@@ -193,7 +193,7 @@ async def get_my_matches(
                w.keywords as wishlist_keywords
         FROM wishlist_matches m
         JOIN wishlists w ON w.wishlist_id = m.wishlist_id
-        WHERE m.owner_firebase_uid = $1
+        WHERE m.wanter_firebase_uid = $1
     """
     params = [uid]
 
@@ -252,7 +252,7 @@ async def mark_match_seen(
                 """
                 UPDATE wishlist_matches
                 SET seen_at = NOW()
-                WHERE match_id = $1 AND owner_firebase_uid = $2 AND seen_at IS NULL
+                WHERE match_id = $1 AND wanter_firebase_uid = $2 AND seen_at IS NULL
                 """,
                 match_id,
                 uid,

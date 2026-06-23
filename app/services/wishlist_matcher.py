@@ -46,6 +46,15 @@ async def match_new_listing_against_wishlists(conn, category: str, listing_data:
     Must be called with the listing's owner_firebase_uid and listing_id already
     present in listing_data. Returns the number of new matches recorded.
     """
+    # TODO(scale): unbounded fan-out for popular items. One listing for a hot item
+    # (e.g. "guitar") matches EVERY active wishlist wanting it, so a single post can:
+    #   1. fetch thousands of candidate wishlists into Python memory (the query below),
+    #   2. write thousands of wishlist_matches rows in one executemany.
+    # It's not a correctness bug (each row is a valid match), but it's O(wishlists in
+    # category) per listing post and will hurt once any category gets popular. When that
+    # happens, move this off the request path (queue/Cloud Tasks worker), cap/paginate
+    # the candidate set, and/or push matching into SQL with a real index instead of
+    # loading every wishlist. Fine for now at low volume - left intentionally simple.
     owner_uid = listing_data.get("owner_firebase_uid")
     listing_id = listing_data.get("listing_id")
     if not owner_uid or not listing_id:
@@ -82,13 +91,15 @@ async def match_new_listing_against_wishlists(conn, category: str, listing_data:
 
     await conn.executemany(
         """
-        INSERT INTO wishlist_matches (wishlist_id, listing_id, category, owner_firebase_uid)
-        VALUES ($1, $2, $3, $4)
+        INSERT INTO wishlist_matches
+            (wishlist_id, listing_id, category, wanter_firebase_uid, giver_firebase_uid)
+        VALUES ($1, $2, $3, $4, $5)
         ON CONFLICT (wishlist_id, listing_id) DO NOTHING
         """,
         [
-            (wishlist_id, listing_id, category, owner_uid_match)
-            for wishlist_id, owner_uid_match in zip(matched_wishlist_ids, matched_owner_uids)
+            # wanter_uid = the WANTER (wishlist owner); owner_uid = the GIVER (listing owner)
+            (wishlist_id, listing_id, category, wanter_uid, owner_uid)
+            for wishlist_id, wanter_uid in zip(matched_wishlist_ids, matched_owner_uids)
         ],
     )
 
