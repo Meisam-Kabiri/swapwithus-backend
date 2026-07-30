@@ -178,6 +178,7 @@ async def get_swap(
 
 
 @router.post("/{chain_id}/accept")
+@router.patch("/{chain_id}/accept")
 @limiter.limit("60/minute")
 async def accept_swap(
     request: Request,
@@ -197,6 +198,7 @@ async def accept_swap(
 
 
 @router.post("/{chain_id}/decline")
+@router.patch("/{chain_id}/decline")
 @limiter.limit("60/minute")
 async def decline_swap(
     request: Request,
@@ -235,6 +237,7 @@ async def confirm_receipt(
 
 
 @router.post("/{chain_id}/cancel")
+@router.patch("/{chain_id}/cancel")
 @limiter.limit("60/minute")
 async def cancel_swap(
     request: Request,
