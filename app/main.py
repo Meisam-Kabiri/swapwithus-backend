@@ -51,10 +51,13 @@ app = FastAPI(lifespan=lifespan)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
-        "http://localhost:8080",  # Local development
-        "https://swapwithus.com",  # Production frontend
-        "https://www.swapwithus.com",  # Production with www
+        "http://localhost:8080",      # Local development (Docker/custom)
+        "http://localhost:3000",      # Local development (Next.js default)
+        "https://swapwithus.com",     # Production frontend
+        "https://www.swapwithus.com", # Production with www
+        "https://swapwithus-web.vercel.app", # Vercel production domain
     ],
+    allow_origin_regex=r"https://.*\.vercel\.app", # Vercel preview deployments
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
