@@ -24,6 +24,10 @@ export STORAGE_EMULATOR_HOST="${STORAGE_EMULATOR_HOST:-http://localhost:4443}"
 export GOOGLE_CLOUD_STORAGE_BUCKET="${GOOGLE_CLOUD_STORAGE_BUCKET:-swapwithus-listing-images}"
 export LOCAL_GCS_SIGNING_KEY="${REPO_ROOT}/.local-gcs-sa.json"
 
+export IMAGE_URL_MODE="${IMAGE_URL_MODE:-public}"
+
+
+
 if ! command -v firebase >/dev/null 2>&1; then
   echo "Firebase CLI is required but was not found in PATH." >&2
   exit 1
