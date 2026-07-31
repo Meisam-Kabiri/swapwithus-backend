@@ -54,9 +54,18 @@ def upgrade() -> None:
             listing_id UUID NOT NULL,
             category VARCHAR(20) NOT NULL,
 
+            -- wanter_firebase_uid and giver_firebase_uid are denormalized snapshots:
+            -- the wanter is derivable from wishlist_id, the giver from (category, listing_id).
+            -- We store them so the reveal feed and cycle detection avoid joins -
+            -- especially the giver, which would otherwise need a polymorphic lookup
+            -- across the per-category listing tables (no single listings table to join).
+            -- Safe to denormalize because listing/wishlist ownership is immutable;
+            -- if that ever changes, these copies must be refreshed.
+
             -- the WANTER: owner of the matched wishlist (the one who wants the item).
-            -- denormalized for a fast "my matches" lookup without joining wishlists.
             wanter_firebase_uid VARCHAR(128) NOT NULL REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
+            -- the GIVER: owner of the matched listing (the one who has the item).
+            giver_firebase_uid VARCHAR(128) NOT NULL REFERENCES users(owner_firebase_uid) ON DELETE CASCADE,
 
             matched_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             seen_at TIMESTAMPTZ,
@@ -65,6 +74,7 @@ def upgrade() -> None:
         );
 
         CREATE INDEX IF NOT EXISTS idx_wishlist_matches_wanter ON wishlist_matches(wanter_firebase_uid, seen_at);
+        CREATE INDEX IF NOT EXISTS idx_wishlist_matches_giver ON wishlist_matches(giver_firebase_uid);
         CREATE INDEX IF NOT EXISTS idx_wishlist_matches_listing ON wishlist_matches(listing_id);
     """)
 
