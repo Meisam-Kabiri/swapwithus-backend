@@ -22,11 +22,11 @@ else
 fi
 
 # 2. Sync GCP_SA_KEY
-if pass show swapwithus/prod/gcp/swapwithus-sa-key >/dev/null 2>&1; then
-    pass show swapwithus/prod/gcp/swapwithus-sa-key | gh secret set GCP_SA_KEY
+if pass show swapwithus/prod/gcp/swapwithus-gha-key >/dev/null 2>&1; then
+    pass show swapwithus/prod/gcp/swapwithus-gha-key | gh secret set GCP_SA_KEY
     echo "✅ Successfully synced GCP_SA_KEY to GitHub Secrets"
 else
-    echo "⚠️ Warning: swapwithus/prod/gcp/swapwithus-sa-key not found in pass" >&2
+    echo "⚠️ Warning: swapwithus/prod/gcp/swapwithus-gha-key not found in pass" >&2
 fi
 
 echo "🎉 All GitHub repository secrets synced successfully!"
