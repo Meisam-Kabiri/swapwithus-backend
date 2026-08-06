@@ -1,0 +1,65 @@
+# ==============================================================================
+# GitHub Actions CI/CD Pipeline - SwapWithUs Backend
+# ==============================================================================
+# This workflow runs automatically whenever code is pushed to the 'main' branch.
+# It authenticates with Google Cloud, builds your production Docker container, 
+# and deploys the latest version to Google Cloud Run.
+#
+# REQUIRED GITHUB REPOSITORY SECRETS (Go to Settings -> Secrets -> Actions):
+#   1. GCP_PROJECT_ID: "swapwithus-project"
+#   2. GCP_SA_KEY: Full JSON key contents of your GCP Service Account
+# ==============================================================================
+
+name: Deploy Backend to Google Cloud Run
+
+# Trigger this workflow automatically on every push to the main branch
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    name: Build & Deploy Backend
+    runs-on: ubuntu-latest  # Runs on a fresh GitHub-hosted Linux virtual machine
+
+    steps:
+      # ------------------------------------------------------------------------
+      # Step 1: Download repo code onto the runner
+      # Marketplace Link: https://github.com/marketplace/actions/checkout
+      # ------------------------------------------------------------------------
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      # ------------------------------------------------------------------------
+      # Step 2: Authenticate to GCP using Service Account JSON key
+      # Marketplace Link: https://github.com/marketplace/actions/authenticate-to-google-cloud
+      # ------------------------------------------------------------------------
+      - name: Authenticate to Google Cloud
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      # ------------------------------------------------------------------------
+      # Step 3: Install & configure gcloud CLI on the runner
+      # Marketplace Link: https://github.com/marketplace/actions/set-up-gcloud-cli
+      # ------------------------------------------------------------------------
+      - name: Set up Cloud SDK
+        uses: google-github-actions/setup-gcloud@v2
+
+      # ------------------------------------------------------------------------
+      # Step 4: Build Docker image in Google Cloud Build & push to Container Registry
+      # Uses the Dockerfile located at swapwithus-backend/Dockerfile
+      # ------------------------------------------------------------------------
+      - name: Build & Push Docker Image to Cloud Build
+        run: |
+          gcloud builds submit --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:latest .
+
+      # ------------------------------------------------------------------------
+      # Step 5: Deploy the newly pushed image to Cloud Run (europe-north1)
+      # ------------------------------------------------------------------------
+      - name: Deploy Container to Cloud Run
+        run: |
+          gcloud run deploy swapwithus-backend \
+            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:latest \
+            --region europe-north1
