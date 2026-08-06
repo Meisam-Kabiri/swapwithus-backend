@@ -53,7 +53,7 @@ jobs:
       # ------------------------------------------------------------------------
       - name: Build & Push Docker Image to Cloud Build
         run: |
-          gcloud builds submit --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:latest .
+          gcloud builds submit --suppress-logs --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:latest .
 
       # ------------------------------------------------------------------------
       # Step 5: Deploy the newly pushed image to Cloud Run (europe-north1)
