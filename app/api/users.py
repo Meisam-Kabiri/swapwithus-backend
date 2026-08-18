@@ -8,7 +8,7 @@ from app.database.query_builder import QueryBuilder
 from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
 from app.middleware.rate_limit import limiter
 from app.models.user import UserCreate, UserUpdate
-from app.services.gcp_image_service import delete_image_from_storage
+from app.services.gcp_image_service import delete_all_images_from_storage
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -304,8 +304,7 @@ async def delete_user(request: Request, uid: str):
                     raise HTTPException(status_code=404, detail="User not found")
 
             # Delete images from storage after DB transaction
-            for image in image_urls:
-                await delete_image_from_storage(image["public_url"])
+            await delete_all_images_from_storage([image["public_url"] for image in image_urls])
 
             logger.info(f"Successfully deleted user and images for userID: {uid}")
             return JSONResponse(

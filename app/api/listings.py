@@ -208,44 +208,49 @@ async def create_listing(
         for i in range(len(images))
     ]
 
-    try:
-        # Upload all images in parallel (2x-10x faster than sequential)
-        uploaded_urls = await asyncio.gather(*upload_tasks)
+    # Upload all images in parallel (2x-10x faster than sequential).
+    # return_exceptions=True so a partial failure still hands back the URLs that
+    # DID upload - otherwise those blobs would be orphaned with no way to clean them.
+    upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+    uploaded_urls = [r for r in upload_results if not isinstance(r, BaseException)]
+    upload_failures = [r for r in upload_results if isinstance(r, BaseException)]
 
-        # Build image records for database
-        image_table_records = []
-        for index, metadata in enumerate(images_metadata):
-            image_record = metadata.copy()
-            image_record["owner_firebase_uid"] = user_data_dict.get("owner_firebase_uid")
-            image_record["listing_id"] = generated_listing_id
-            image_record["category"] = category
-            public_url = uploaded_urls[index]
-            image_record["public_url"] = public_url
-
-            # Convert public URL to CDN URL
-            # From: https://storage.googleapis.com/swapwithus-listing-images/homes/listing-id.jpg
-            # To:   https://cdn.swapwithus.com/homes/listing-id.jpg
-            blob_path = public_url.split("swapwithus-listing-images/")[
-                -1
-            ]  # e.g., "homes/listing_id.jpg"
-
-            # Build CDN URL directly (category should already be plural from frontend)
-            image_record["cdn_url"] = f"https://cdn.swapwithus.com/{blob_path}"
-
-            image_table_records.append(image_record)
-
-        logger.info(f"Successfully uploaded {len(uploaded_urls)} images in parallel")
-
-    except Exception as upload_error:
-        logger.error(f"Failed to upload images: {upload_error}")
+    if upload_failures:
+        logger.error(
+            f"Failed to upload {len(upload_failures)}/{len(upload_results)} images: "
+            f"{upload_failures[0]}"
+        )
         # Clean up any successfully uploaded images
         for url in uploaded_urls:
-            if url:  # Only cleanup if upload succeeded
-                try:
-                    delete_image_from_storage(url)
-                except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup {url}: {cleanup_error}")
+            try:
+                await delete_image_from_storage(url)
+            except Exception as cleanup_error:
+                logger.error(f"Failed to cleanup {url}: {cleanup_error}")
         raise HTTPException(500, "Failed to upload images")
+
+    # Build image records for database
+    image_table_records = []
+    for index, metadata in enumerate(images_metadata):
+        image_record = metadata.copy()
+        image_record["owner_firebase_uid"] = user_data_dict.get("owner_firebase_uid")
+        image_record["listing_id"] = generated_listing_id
+        image_record["category"] = category
+        public_url = uploaded_urls[index]
+        image_record["public_url"] = public_url
+
+        # Convert public URL to CDN URL
+        # From: https://storage.googleapis.com/swapwithus-listing-images/homes/listing-id.jpg
+        # To:   https://cdn.swapwithus.com/homes/listing-id.jpg
+        blob_path = public_url.split("swapwithus-listing-images/")[
+            -1
+        ]  # e.g., "homes/listing_id.jpg"
+
+        # Build CDN URL directly (category should already be plural from frontend)
+        image_record["cdn_url"] = f"https://cdn.swapwithus.com/{blob_path}"
+
+        image_table_records.append(image_record)
+
+    logger.info(f"Successfully uploaded {len(uploaded_urls)} images in parallel")
 
     # STEP 2: Save to database (fast transaction, no blocking I/O)
     create_user_query = """
@@ -349,11 +354,7 @@ async def create_listing(
         # Clean up uploaded images if database save failed
         if uploaded_urls:
             logger.info(f"Cleaning up {len(uploaded_urls)} uploaded images")
-            for url in uploaded_urls:
-                try:
-                    delete_image_from_storage(url)
-                except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup image {url}: {cleanup_error}")
+            await delete_all_images_from_storage(uploaded_urls)
 
         # Don't expose internal error details to user
         raise HTTPException(status_code=500, detail="Failed to create listing. Please try again.")
@@ -581,22 +582,23 @@ async def update_home_listing(
     #             )
     #         )
 
-    try:
-        # Upload all NEW images in parallel
-        if upload_tasks:
-            uploaded_urls = await asyncio.gather(*upload_tasks)
-            logger.info(f"Successfully uploaded {len(uploaded_urls)} new images in parallel")
+    # Upload all NEW images in parallel. return_exceptions=True so a partial
+    # failure still hands back the URLs that DID upload for cleanup.
+    if upload_tasks:
+        upload_results = await asyncio.gather(*upload_tasks, return_exceptions=True)
+        uploaded_urls = [r for r in upload_results if not isinstance(r, BaseException)]
+        upload_failures = [r for r in upload_results if isinstance(r, BaseException)]
 
-    except Exception as upload_error:
-        logger.error(f"Failed to upload images: {upload_error}")
-        # Clean up any successfully uploaded images
-        for url in uploaded_urls:
-            if url:
-                try:
-                    await delete_image_from_storage(url)
-                except Exception as cleanup_error:
-                    logger.error(f"Failed to cleanup {url}: {cleanup_error}")
-        raise HTTPException(500, "Failed to upload new images")
+        if upload_failures:
+            logger.error(
+                f"Failed to upload {len(upload_failures)}/{len(upload_results)} new images: "
+                f"{upload_failures[0]}"
+            )
+            # Clean up any successfully uploaded images
+            await delete_all_images_from_storage(uploaded_urls)
+            raise HTTPException(500, "Failed to upload new images")
+
+        logger.info(f"Successfully uploaded {len(uploaded_urls)} new images in parallel")
 
     # Build image records for database
     image_records = []

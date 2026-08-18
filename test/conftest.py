@@ -42,16 +42,18 @@ def docker_compose():
     import time
     time.sleep(2)  # Wait for the database to be ready
 
-    # Drop and recreate the database to start fresh
+    # Drop and recreate the database to start fresh.
+    # Address the DB by its compose SERVICE name ("db") instead of a hardcoded
+    # container name - the generated name depends on the project folder name.
     print("🗑️  Resetting test database...")
     subprocess.run([
-        "docker", "exec", "swapwithus_backend-db-1",
+        "docker", "compose", "exec", "-T", "db",
         "psql", "-U", "msm", "-d", "postgres", "-c",
         'DROP DATABASE IF EXISTS "swapwithusDB";'
     ], check=True, capture_output=True)
 
     subprocess.run([
-        "docker", "exec", "swapwithus_backend-db-1",
+        "docker", "compose", "exec", "-T", "db",
         "psql", "-U", "msm", "-d", "postgres", "-c",
         'CREATE DATABASE "swapwithusDB";'
     ], check=True, capture_output=True)
@@ -60,11 +62,12 @@ def docker_compose():
 
     # Run Alembic migrations to create/update schema
     print("📦 Running Alembic migrations for test database...")
+    repo_root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
     result = subprocess.run(
         ["./scripts/alembic-local.sh", "upgrade", "head"],
         capture_output=True,
         text=True,
-        cwd="/home/meisam/Documents/swapwithus/swapwithus_backend"
+        cwd=repo_root
     )
 
     # Always show output
