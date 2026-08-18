@@ -9,113 +9,12 @@ from datetime import timedelta
 from fastapi import UploadFile
 from google.cloud import storage  # type: ignore
 from google.cloud.exceptions import GoogleCloudError
-from PIL import Image
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# Shared executor for ALL blocking GCS/PIL work. One pool per process:
-# creating a ThreadPoolExecutor per request leaks threads because the
-# per-request executors were never shut down.
+# Shared executor for ALL blocking GCS work. One pool per process.
 _EXECUTOR = ThreadPoolExecutor(max_workers=10)
-
-
-# --- Local GCS emulation -----------------------------------------------------
-# STORAGE_EMULATOR_HOST is set ONLY in local dev (scripts/dev/run-local.sh) and
-# points every GCS call at fake-gcs-server instead of real Google Cloud Storage.
-# In prod (Cloud Run) it is unset, so _get_storage_client() returns a normal
-# client and nothing below changes. fake-gcs-server does not verify signatures,
-# so signed URLs work end-to-end locally with a throwaway signing key.
-def _emulator_host() -> str | None:
-    return os.getenv("STORAGE_EMULATOR_HOST") or None
-
-
-def _get_storage_client() -> storage.Client:
-    """GCS client. Local: routed to fake-gcs-server with anonymous creds. Prod: real GCS."""
-    emulator = _emulator_host()
-    if emulator:
-        from google.auth.credentials import AnonymousCredentials
-
-        return storage.Client(
-            project=os.getenv("SWAPWITHUS_PROJECT_ID", "local-dev"),
-            credentials=AnonymousCredentials(),
-            client_options={"api_endpoint": emulator},
-        )
-    return storage.Client()
-
-
-def optimize_image(image_file, max_width=1200, quality=85):
-    """
-    Smart image optimization:
-    - PNG with transparency → optimized PNG
-    - PNG without transparency → JPEG (smaller)
-    - JPEG → optimized JPEG
-    - WebP → optimized WebP
-    - Other formats → JPEG
-    """
-    img = Image.open(image_file)
-    original_format = img.format
-
-    # Resize if too large
-    if img.width > max_width:
-        ratio = max_width / img.width
-        new_height = int(img.height * ratio)
-        img = img.resize((max_width, new_height), Image.LANCZOS)
-
-    output = io.BytesIO()
-
-    # Decide output format based on image characteristics
-    if original_format == "PNG":
-        # Check if PNG has transparency
-        has_transparency = img.mode in ("RGBA", "LA") or (
-            img.mode == "P" and "transparency" in img.info
-        )
-
-        if has_transparency:
-            # Keep as PNG to preserve transparency
-            if img.mode == "P":
-                img = img.convert("RGBA")
-            img.save(output, format="PNG", optimize=True)
-            output.seek(0)
-            return output, "image/png"
-        else:
-            # Convert to JPEG for smaller size
-            if img.mode in ("RGBA", "LA", "P"):
-                img = img.convert("RGB")
-            img.save(output, format="JPEG", quality=quality, optimize=True)
-            output.seek(0)
-            return output, "image/jpeg"
-
-    elif original_format == "WEBP":
-        # WebP is already efficient, keep it
-        if img.mode in ("RGBA", "LA"):
-            # WebP supports transparency, keep it
-            img.save(output, format="WEBP", quality=quality, optimize=True, lossless=False)
-        else:
-            img.save(output, format="WEBP", quality=quality, optimize=True)
-        output.seek(0)
-        return output, "image/webp"
-
-    else:
-        # JPEG or other formats → convert to JPEG
-        # Always convert to RGB for JPEG
-        if img.mode != "RGB":
-            if img.mode in ("RGBA", "LA"):
-                # Create white background for transparency
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[-1])
-                img = background
-            elif img.mode == "P":
-                img = img.convert("RGBA")
-                background = Image.new("RGB", img.size, (255, 255, 255))
-                background.paste(img, mask=img.split()[-1])
-                img = background
-            else:
-                img = img.convert("RGB")
-
-        img.save(output, format="JPEG", quality=quality, optimize=True)
-        output.seek(0)
-        return output, "image/jpeg"
 
 
 """ 
@@ -129,25 +28,17 @@ export GOOGLE_APPLICATION_CREDENTIALS="/home/me/service-account.json"
 
 
 # Define the blocking operations to run in thread pool
-def _blocking_upload(file_content, bucket_name, blob_name):
+def _blocking_upload(file_content: bytes, bucket_name: str, blob_name: str, content_type: str = "image/jpeg"):
     """
-    This function contains all the BLOCKING I/O operations:
-    - PIL image processing (Image.open, resize, save)
-    - GCS upload (blob.upload_from_file)
-
-    Running in thread pool prevents blocking the event loop.
+    Direct upload to GCS without PIL in-memory processing.
+    Cloudflare handles resizing/optimization at the CDN edge.
     """
-    # Initialize GCS client (thread-safe)
     client = _get_storage_client()
     bucket = client.bucket(bucket_name)
     blob = bucket.blob(blob_name)
 
-    # Optimize image (blocking PIL operations)
     file_obj = io.BytesIO(file_content)
-    optimized_image, content_type = optimize_image(file_obj, max_width=1200, quality=85)
-
-    # Upload to GCS (blocking network I/O)
-    blob.upload_from_file(optimized_image, content_type=content_type, timeout=30)
+    blob.upload_from_file(file_obj, content_type=content_type, timeout=30)
 
     return blob_name, content_type
 
@@ -197,6 +88,7 @@ async def upload_photo_to_storage(
             file_content,
             bucket_name,
             blob_name,
+            photo.content_type or "image/jpeg",
         )
 
         # Return public URL
@@ -215,80 +107,7 @@ async def upload_photo_to_storage(
         raise Exception("Failed to upload photo")
 
 
-def get_signed_url(public_url: str, expires_seconds: int = 3600) -> str:
-    """Convert public URL to signed URL using IAM-based signing (works on Cloud Run)"""
-    try:
-        bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
 
-        # Extract blob_name from public URL
-        blob_name = public_url.split(f"storage.googleapis.com/{bucket_name}/")[1]
-
-        # Local dev: sign against fake-gcs-server using a throwaway key.
-        # The signature isn't verified by the emulator; api_access_endpoint makes
-        # the URL point at the emulator instead of storage.googleapis.com.
-        emulator = _emulator_host()
-        if emulator:
-            from google.oauth2 import service_account
-
-            signing_key = os.getenv("LOCAL_GCS_SIGNING_KEY")
-            if not signing_key:
-                raise RuntimeError(
-                    "LOCAL_GCS_SIGNING_KEY is required to sign URLs against the GCS emulator"
-                )
-            signer = service_account.Credentials.from_service_account_file(signing_key)
-            blob = _get_storage_client().bucket(bucket_name).blob(blob_name)
-            return blob.generate_signed_url(
-                expiration=timedelta(seconds=expires_seconds),
-                version="v4",
-                credentials=signer,
-                api_access_endpoint=emulator,
-            )
-
-        # Check if running on Cloud Run (no private key available)
-        if os.getenv("K_SERVICE"):
-            # Use IAM signBlob API - keyless signing on Cloud Run
-            from google.auth import compute_engine
-            from google.auth.transport import requests as google_requests
-
-            service_account_email = (
-                "swapwithus-backend-service@swapwithus-project.iam.gserviceaccount.com"
-            )
-
-            # Get access token from metadata server
-            credentials = compute_engine.Credentials()
-            auth_request = google_requests.Request()
-            credentials.refresh(auth_request)
-            access_token = credentials.token
-
-            # Create client and blob
-            client = storage.Client()
-            bucket = client.bucket(bucket_name)
-            blob = bucket.blob(blob_name)
-
-            # Generate signed URL using IAM signBlob (no private key needed!)
-            signed_url = blob.generate_signed_url(
-                expiration=timedelta(seconds=expires_seconds),
-                version="v4",
-                service_account_email=service_account_email,
-                access_token=access_token,
-            )
-
-            return signed_url
-        else:
-            # Local development against real GCS - use standard signing
-            client = _get_storage_client()
-            bucket = client.bucket(bucket_name)
-            blob = bucket.blob(blob_name)
-
-            signed_url = blob.generate_signed_url(
-                expiration=timedelta(seconds=expires_seconds), version="v4"
-            )
-            return signed_url
-
-    except Exception as e:
-        logger.error(f"CRITICAL: Failed to generate signed URL: {e}", exc_info=True)
-        # NEVER return public URLs - all images must remain private
-        raise Exception("Cannot generate signed URL for private image")
 
 
 def _blocking_delete(public_url: str) -> bool:
@@ -409,36 +228,4 @@ async def delete_all_images_from_storage(image_urls: list[str]) -> bool:
 # CDN Validates: The browser automatically attaches the signed cookie to each request. The Google Cloud CDN edge nodes validate the cookie. If it's valid, the CDN serves the image (from its cache or from your GCS bucket). Your backend is never involved.
 
 
-# How to Implement:
 
-# Enable Signed Cookies on your CDN Backend Service: In the Google Cloud Console, go to your Load Balancer / CDN settings and enable Signed Cookies for the backend service or backend bucket that points to your GCS bucket.
-
-# Create a Signing Key: Create a key for your backend service. This is what your backend will use to sign the cookies.
-
-
-if __name__ == "__main__":
-    import sys
-
-    sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
-    from app.utils.cdn_auth import make_urlprefix_token
-
-    print("=" * 60)
-    print("CDN URL SIGNING TEST")
-    print("=" * 60)
-
-    KEY_B64 = "TMLeUr9-SURjle9ky_jHnQ=="
-    KEY_NAME = "cdnkey"
-    blob_name = "2f884215-7155-49b1-8db1-14e0117cdbd1_20251014_60e31a1d-d04.png"
-    cdn_base = "https://cdn.swapwithus.com/homes/"
-
-    print(f"Key Name: {KEY_NAME}")
-    print(f"Key Value: {KEY_B64}")
-    print(f"Testing image: {blob_name}\n")
-
-    token = make_urlprefix_token(cdn_base, KEY_NAME, KEY_B64, expires_in=3600)
-    signed_url = f"{cdn_base}{blob_name}?{token}"
-
-    print("Signed URL:")
-    print(signed_url)
-    print("\nTest with curl:")
-    print(f'curl -I "{signed_url}"')

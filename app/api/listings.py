@@ -28,7 +28,6 @@ from app.models.user import FirebaseUserUpsert
 from app.services.gcp_image_service import (delete_all_images_from_storage,
                                             delete_image_from_storage, upload_photo_to_storage)
 from app.services.wishlist_matcher import match_new_listing_against_wishlists
-from app.utils.cdn_auth import make_image_url_suffix
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -57,23 +56,20 @@ async def get_my_all_listings(
             "total": int
         }
     """
-    async def fetch_category(category: str, image_url_suffix: str):
+    async def fetch_category(category: str):
         """Fetch listings for a single category."""
         async with get_pool_from_request(request).acquire() as conn:
             query = QueryBuilder.build_get_listings_by_owner_id_query(category)
             logger.info(f"Fetching {category} listings for user {uid}")
-            return await conn.fetch(query, uid, image_url_suffix)
+            return await conn.fetch(query, uid)
 
     try:
-        # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
-        image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
-
         # Fetch all categories in parallel (4 connections from pool)
         homes, books, clothes, caravans = await asyncio.gather(
-            fetch_category("homes", image_url_suffix),
-            fetch_category("books", image_url_suffix),
-            fetch_category("clothes", image_url_suffix),
-            fetch_category("caravans", image_url_suffix),
+            fetch_category("homes"),
+            fetch_category("books"),
+            fetch_category("clothes"),
+            fetch_category("caravans"),
         )
 
         def process_rows(rows, category=None):
@@ -373,9 +369,6 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
         raise HTTPException(400, "Invalid category provided")
 
     try:
-        # CDN image URL suffix: "?<token>" in signed mode, "" in public mode.
-        image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
-
         table_name = category
         gcloud_folder_name = category
         async with get_pool_from_request(request).acquire() as conn:
@@ -387,8 +380,7 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
                         json_build_object(
                             'public_url', i.public_url,
                             'cdn_url', 'https://cdn.swapwithus.com/{gcloud_folder_name}/' ||
-                                split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{gcloud_folder_name}/', 2) ||
-                                $2,
+                                split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{gcloud_folder_name}/', 2),
                             'tag', i.tag,
                             'caption', i.caption,
                             'is_hero', i.is_hero,
@@ -401,7 +393,7 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
                 GROUP BY l.listing_id
                 ORDER BY l.created_at DESC;
                 """
-            listing = await conn.fetchrow(query, listing_id, image_url_suffix)
+            listing = await conn.fetchrow(query, listing_id)
             if not listing:
                 raise HTTPException(404, "Listing not found")
             # convert the images JSON string to list

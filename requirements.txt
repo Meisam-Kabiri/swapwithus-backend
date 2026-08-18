@@ -8,7 +8,6 @@ aiohttp==3.13.1
 google-cloud-storage==3.4.1
 google-cloud-iam==2.20.0
 uvicorn==0.38.0
-pillow==12.0.0
 async-lru==2.0.5
 slowapi==0.1.9
 redis==7.0.0

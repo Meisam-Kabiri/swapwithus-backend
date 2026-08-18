@@ -7,9 +7,8 @@ from uuid import uuid4
 import requests
 from fastapi import UploadFile
 
-from app.services.gcp_image_service import (delete_all_images_from_storage, get_signed_url,
+from app.services.gcp_image_service import (delete_all_images_from_storage,
                                             upload_photo_to_storage)
-from app.utils.cdn_auth import make_urlprefix_token
 
 fake_image = BytesIO(b"fake image data")
 fake_image.name = f"test_image_{uuid4().hex[:8]}.jpg"
@@ -43,30 +42,3 @@ async def test_real_upload_delete_images_to_gcp():
     deleted = await delete_all_images_from_storage(uploaded_urls)
     assert deleted is True
     assert num_files_on_gcp_before == number_of_test_images_in_gcp()[0]
-
-
-bucket_name = os.getenv("GOOGLE_CLOUD_STORAGE_BUCKET", "swapwithus-listing-images")
-blobs = number_of_test_images_in_gcp()
-blob_name = blobs[1][0] if blobs[0] > 0 else None
-public_url = f"https://storage.googleapis.com/{bucket_name}/" + blob_name if blob_name else None
-print("Using public_url for tests:", public_url)
-
-
-def test_signed_url_access():
-    response = requests.head(public_url, allow_redirects=True)
-    assert response.status_code in (401, 403)
-    signed_url = get_signed_url(public_url, expires_seconds=3600)
-    print("Signed URL:", signed_url)
-    response = requests.head(signed_url, allow_redirects=True)
-    assert response.status_code == 200
-
-
-def test_cdn_token_access():
-    response = requests.head(public_url, allow_redirects=True)
-    assert response.status_code in (401, 403)
-    tokenized_url = make_urlprefix_token("https://cdn.swapwithus.com/")
-    full_signed_url = f"{public_url}?{tokenized_url}"
-    print("Tokenized URL:", full_signed_url)
-    response = requests.head(full_signed_url, allow_redirects=True)
-    # assert response.status_code == 200
-    assert response.status_code in (200, 403)  # CDN only allows for swapwithus.com domain

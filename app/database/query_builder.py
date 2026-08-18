@@ -107,7 +107,7 @@ class QueryBuilder:
             gcloud_folder_name: Optional folder name in GCS (defaults to table_name).
 
         Returns:
-            A SQL query string with placeholders: $1 = owner_firebase_uid, $2 = token_prefix.
+            A SQL query string with placeholder: $1 = owner_firebase_uid.
         """
         if table_name not in LISTING_CATEGORIES:
             raise ValueError(f"Invalid table: {table_name}")
@@ -126,8 +126,7 @@ class QueryBuilder:
                         json_build_object(
                             'public_url', i.public_url,
                             'cdn_url', 'https://cdn.swapwithus.com/{gcloud_folder_name}/' ||
-                                split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{gcloud_folder_name}/', 2) ||
-                                $2,
+                                split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{gcloud_folder_name}/', 2),
                             'tag', i.tag,
                             'caption', i.caption,
                             'is_hero', i.is_hero,
@@ -157,7 +156,7 @@ class QueryBuilder:
             category: Name of the table to query (e.g., "homes", "books", "clothes", "caravans").
 
         Returns:
-            A SQL query string with placeholders: $1 = listing_id, $2 = token_prefix.
+            A SQL query string with placeholder: $1 = listing_id.
         """
         if category not in LISTING_CATEGORIES:
             raise ValueError(f"Invalid category: {category}")
@@ -172,9 +171,8 @@ class QueryBuilder:
                     json_agg(
                         json_build_object(
                             'public_url', i.public_url,
-                            'signed_url', 'https://cdn.swapwithus.com/{category}/' ||
-                                split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{category}/', 2) ||
-                                $2,
+                            'cdn_url', 'https://cdn.swapwithus.com/{category}/' ||
+                                split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{category}/', 2),
                             'tag', i.tag,
                             'caption', i.caption,
                             'is_hero', i.is_hero,

@@ -6,7 +6,6 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
 from app.middleware.rate_limit import limiter
-from app.utils.cdn_auth import make_image_url_suffix
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -47,9 +46,6 @@ async def browse_homes(
 
     tick = time.time()
     try:
-        # Full query suffix: "?<token>" in signed mode, "" in public mode.
-        image_url_suffix = make_image_url_suffix("https://cdn.swapwithus.com/")
-
         # Calculate offset for pagination
         offset = (page - 1) * page_size
 
@@ -64,8 +60,7 @@ async def browse_homes(
                         'public_url', i.public_url,
                         'cdn_url',
                             'https://cdn.swapwithus.com/{category}/' ||
-                            split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{category}/', 2) ||
-                            $1,
+                            split_part(i.public_url, 'storage.googleapis.com/swapwithus-listing-images/{category}/', 2),
                         'tag', i.tag,
                         'caption', i.caption,
                         'is_hero', i.is_hero,
@@ -76,38 +71,18 @@ async def browse_homes(
             INNER JOIN images i ON i.listing_id = h.listing_id
             GROUP BY h.listing_id
             ORDER BY h.created_at DESC
-            LIMIT $2 OFFSET $3;
+            LIMIT $1 OFFSET $2;
         """
 
         # Query to get total count
         query_count = f"SELECT COUNT(*) FROM {category};"
-
-        # expiration = 3600  # 1 hour
-        # cookies_value = generate_signed_cookie(expiration=3600)
-        # logging.info("Generated cookies value:{cookies_value}" )
-        # cookies_response = {"cdn_cookies": {
-        #           "name": "Cloud-CDN-Cookie",
-        #           "value": cookies_value,
-        #           "expires": expiration,
-        #           "domain": ".swapwithus.com"
-        #       }}
-
-        # response.set_cookie(
-        #       key="Cloud-CDN-Cookie",
-        #       value=cookies_value,
-        #       max_age=3600,
-        #       domain=".swapwithus.com",  # Works for www.swapwithus.com AND cdn.swapwithus.com
-        #       secure=True,
-        #       httponly=False,  # Must be False so images can use it
-        #       samesite="none"
-        #   )
 
         async with get_pool_from_request(request).acquire() as conn:
             # Get total count for pagination metadata
             total_count = await conn.fetchval(query_count)
 
             # Get paginated homes
-            fetched_listings = await conn.fetch(query_listings, image_url_suffix, page_size, offset)
+            fetched_listings = await conn.fetch(query_listings, page_size, offset)
             print(f"Fetched {len(fetched_listings)} {category} from DB")
 
             import math

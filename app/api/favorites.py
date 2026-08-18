@@ -5,7 +5,6 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
-from app.utils.cdn_auth import build_cdn_image_url
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -84,9 +83,8 @@ async def get_favorites(
             favorites = [dict(row) for row in favorite_rows]
             for favorite in favorites:
                 if favorite.get("hero_image_url"):
-                    favorite["signed_url"] = build_cdn_image_url(
-                        favorite["hero_image_url"], category="homes"
-                    )
+                    blob_path = favorite["hero_image_url"].split("swapwithus-listing-images/")[-1]
+                    favorite["cdn_url"] = f"https://cdn.swapwithus.com/{blob_path}"
             return favorites
         except Exception as e:
             logger.error(f"Error fetching favorites: {e}")
