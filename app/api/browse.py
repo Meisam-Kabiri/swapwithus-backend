@@ -13,6 +13,16 @@ logger.setLevel(logging.INFO)
 router = APIRouter()
 
 
+def get_client_country(request: Request) -> str | None:
+    """Extract client country code from cloud proxy headers (Cloudflare, GCP, AWS)."""
+    return (
+        request.headers.get("CF-IPCountry")
+        or request.headers.get("X-Client-Geo-Country")
+        or request.headers.get("CloudFront-Viewer-Country")
+        or request.headers.get("X-Country-Code")
+    )
+
+
 # from fastapi import Response
 @router.get("/browse")
 @limiter.limit("30/minute")
@@ -20,15 +30,16 @@ router = APIRouter()
 async def browse_homes(
     request: Request,
     category: str | None = Query(None),  # "homes", "books", "clothes", "caravans", or None for all
+    user_city: str | None = Query(None, description="User's city for location sorting"),
+    user_country: str | None = Query(None, description="User's country for location sorting"),
     page: int = Query(1, ge=1, description="Page number (starts at 1)"),
     page_size: int = Query(20, ge=1, le=100, description="Items per page (max 100)"),
 ):
     """
-    Browse all home listings with pagination.
-
-    FIXED: Added pagination to prevent timeouts and crashes as listings grow.
-    - Default: 20 items per page
-    - Max: 100 items per page
+    Browse all listings with location ranking and pagination.
+    - Tier 1: Same city
+    - Tier 2: Same country (via parameter or cloud edge geo header)
+    - Tier 3: Rest of world
     """
     import time
 
@@ -48,9 +59,14 @@ async def browse_homes(
     try:
         # Calculate offset for pagination
         offset = (page - 1) * page_size
+        target_city = user_city.strip() if user_city else None
+        target_country = user_country.strip() if user_country else get_client_country(request)
 
-        logger.info(f"Browse {category}: page={page}, page_size={page_size}, offset={offset}")
-        # Query to get paginated homes with images
+        logger.info(
+            f"Browse {category}: page={page}, page_size={page_size}, offset={offset}, "
+            f"target_city={target_city}, target_country={target_country}"
+        )
+        # Query to get paginated listings sorted by location relevance
         query_listings = f"""
             SELECT
                 h.*,
@@ -70,8 +86,14 @@ async def browse_homes(
             FROM {category} h
             INNER JOIN images i ON i.listing_id = h.listing_id
             GROUP BY h.listing_id
-            ORDER BY h.created_at DESC
-            LIMIT $1 OFFSET $2;
+            ORDER BY
+                CASE
+                    WHEN $1::text IS NOT NULL AND LOWER(h.city) = LOWER($1) THEN 1
+                    WHEN $2::text IS NOT NULL AND (LOWER(h.country) = LOWER($2) OR UPPER(h.country) = UPPER($2)) THEN 2
+                    ELSE 3
+                END ASC,
+                h.created_at DESC
+            LIMIT $3 OFFSET $4;
         """
 
         # Query to get total count
@@ -82,7 +104,7 @@ async def browse_homes(
             total_count = await conn.fetchval(query_count)
 
             # Get paginated homes
-            fetched_listings = await conn.fetch(query_listings, page_size, offset)
+            fetched_listings = await conn.fetch(query_listings, target_city, target_country, page_size, offset)
             print(f"Fetched {len(fetched_listings)} {category} from DB")
 
             import math
