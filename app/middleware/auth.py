@@ -37,6 +37,17 @@ def extract_firebase_user_uid(request: Request) -> str:
         raise HTTPException(status_code=401, detail="Invalid or expired token")
 
 
+def get_optional_firebase_uid(request: Request) -> str | None:
+    """
+    For public endpoints that return more to signed-in users. A missing or invalid
+    token means an anonymous viewer, so the caller serves only public data.
+    """
+    try:
+        return extract_firebase_user_uid(request)
+    except HTTPException:
+        return None
+
+
 def verify_user_owns_resource(request: Request, claimed_uid: str):
     """
     Verify that the authenticated user matches the claimed UID

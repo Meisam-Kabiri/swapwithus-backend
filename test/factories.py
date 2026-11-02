@@ -123,7 +123,6 @@ class CaravanListingCreateFactory(ModelFactory[CaravanListingCreate]):
 
     # Only override fields that polyfactory can't handle properly
     owner_firebase_uid = Use(lambda: uuid4().hex[:20])
-    email = Use(lambda: fake.email())
 
 
 class CaravanListingResponseFactory(ModelFactory[CaravanListingResponse]):
@@ -141,7 +140,6 @@ class ClothingListingCreateFactory(ModelFactory[ClothingListingCreate]):
 
     # Only override fields that polyfactory can't handle properly
     owner_firebase_uid = Use(lambda: uuid4().hex[:20])
-    email = Use(lambda: fake.email())
 
 
 class ClothingListingResponseFactory(ModelFactory[ClothingListingResponse]):

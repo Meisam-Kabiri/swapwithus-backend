@@ -7,6 +7,7 @@ from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
 from app.models.swap import ReviewCreate, ReviewUpdate
+from app.services.listing_privacy import first_name_only
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -160,7 +161,7 @@ async def get_user_reviews(
                     "itemConditionRating": row["item_condition_rating"],
                     "timelinessRating": row["timeliness_rating"],
                     "comment": row["comment"],
-                    "reviewerName": row["reviewer_name"],
+                    "reviewerName": first_name_only(row["reviewer_name"]),
                     "createdAt": row["created_at"].isoformat(),
                     "updatedAt": row["updated_at"].isoformat(),
                 }

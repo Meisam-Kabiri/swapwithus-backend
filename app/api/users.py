@@ -5,10 +5,12 @@ from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool_from_request
 from app.database.query_builder import QueryBuilder
-from app.middleware.auth import extract_firebase_user_uid, verify_user_owns_resource
+from app.middleware.auth import (extract_firebase_user_uid, get_optional_firebase_uid,
+                                 verify_user_owns_resource)
 from app.middleware.rate_limit import limiter
 from app.models.user import UserCreate, UserUpdate
 from app.services.gcp_image_service import delete_all_images_from_storage
+from app.services.listing_privacy import can_view_full_identity, first_name_only
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -94,10 +96,16 @@ async def update_my_user_data(
      
 @router.get("/{uid}")
 @limiter.limit("100/minute")
-async def get_user_data(uid: str, request: Request):
+async def get_user_data(
+    uid: str,
+    request: Request,
+    viewer_uid: str | None = Depends(get_optional_firebase_uid),
+):
     """
     Get another user's PUBLIC profile data (for viewing their listings)
-    Returns limited public information + stats calculated from reviews
+    Returns limited public information + stats calculated from reviews.
+    Full name and photo are included only for the user themselves and the
+    other side of an accepted swap; everyone else gets the first name only.
     """
     async with get_pool_from_request(request).acquire() as conn:
         # Get basic user info
@@ -136,10 +144,12 @@ async def get_user_data(uid: str, request: Request):
         total_swaps = swaps_row["total_swaps"] if swaps_row else 0
         trust_score = int((average_rating * 10) + total_reviews) if average_rating > 0 else 0
 
+        show_full_identity = await can_view_full_identity(conn, viewer_uid, uid)
+
         user_data = {
             "owner_firebase_uid": user_row["owner_firebase_uid"],
-            "name": user_row["name"],
-            "profileImage": user_row["profile_image"],
+            "name": user_row["name"] if show_full_identity else first_name_only(user_row["name"]),
+            "profileImage": user_row["profile_image"] if show_full_identity else None,
             "totalReviews": total_reviews,
             "averageRating": average_rating,
             "totalSwapsCompleted": total_swaps,

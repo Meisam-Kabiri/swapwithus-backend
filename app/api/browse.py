@@ -6,6 +6,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
 from app.middleware.rate_limit import limiter
+from app.services.listing_privacy import PRIVATE_LISTING_FIELDS
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -148,7 +149,7 @@ async def browse_homes(
 
                     model_cls = MODEL_MAP.get(cat_name, HomeListingResponse)
                     validated_obj = model_cls.model_validate(full_dict)
-                    obj_dict = validated_obj.model_dump(by_alias=True)
+                    obj_dict = validated_obj.model_dump(by_alias=True, exclude=PRIVATE_LISTING_FIELDS)
                     obj_dict["category"] = cat_name
                     listings.append(obj_dict)
 
@@ -196,7 +197,7 @@ async def browse_homes(
                     if isinstance(row_dict.get("images"), str):
                         row_dict["images"] = json.loads(row_dict["images"])
                     validated_obj = model_cls.model_validate(row_dict)
-                    obj_dict = validated_obj.model_dump(by_alias=True)
+                    obj_dict = validated_obj.model_dump(by_alias=True, exclude=PRIVATE_LISTING_FIELDS)
                     obj_dict["category"] = selected_category
                     listings.append(obj_dict)
 

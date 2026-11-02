@@ -15,7 +15,7 @@ from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Uplo
 from app.constants import LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
 from app.database.query_builder import QueryBuilder
-from app.middleware.auth import extract_firebase_user_uid
+from app.middleware.auth import extract_firebase_user_uid, get_optional_firebase_uid
 from app.middleware.rate_limit import limiter
 from app.models.book_listing import BookListingCreate, BookListingResponse, BookListingUpdate
 from app.models.caravan_listing import (CaravanListingCreate, CaravanListingResponse,
@@ -27,6 +27,8 @@ from app.models.image import ImageMetadataCollection
 from app.models.user import FirebaseUserUpsert
 from app.services.gcp_image_service import (delete_all_images_from_storage,
                                             delete_image_from_storage, upload_photo_to_storage)
+from app.services.listing_privacy import (OWNER_DETAIL_FIELDS, PRIVATE_LISTING_FIELDS,
+                                          can_view_exact_location)
 from app.services.wishlist_matcher import match_new_listing_against_wishlists
 
 logger = logging.getLogger(__name__)
@@ -358,11 +360,17 @@ async def create_listing(
 
 @router.get("/{category}/{listing_id}")
 @limiter.limit("60/minute")
-async def get_listing_detail(request: Request, category: str, listing_id: str):
+async def get_listing_detail(
+    request: Request,
+    category: str,
+    listing_id: str,
+    viewer_uid: str | None = Depends(get_optional_firebase_uid),
+):
     """
     Get details of a single listing by ID and category.
 
-    Returns the listing details including images with signed CDN URLs.
+    Returns the listing details including images with signed CDN URLs. A home's exact
+    location is included only for its owner and the other side of an accepted swap.
     """
     category = category.lower()
     if category not in LISTING_CATEGORIES:
@@ -407,7 +415,13 @@ async def get_listing_detail(request: Request, category: str, listing_id: str):
             elif category == "caravans":
                 listing = CaravanListingResponse.model_validate(listing_dict)
 
-            return listing.model_dump(by_alias=True)
+            show_exact_location = category == "homes" and await can_view_exact_location(
+                conn, viewer_uid, listing_id, listing_dict["owner_firebase_uid"]
+            )
+            return listing.model_dump(
+                by_alias=True,
+                exclude=OWNER_DETAIL_FIELDS if show_exact_location else PRIVATE_LISTING_FIELDS,
+            )
     except HTTPException:
         raise
     except Exception as e:
@@ -719,13 +733,6 @@ async def update_home_listing(
         "images_deleted": len(deleted_urls),
     }
 
-
-# TODO: by knowin listing id, anybody can acess everyting on the table including exact address (email, name have been revmeod from homes tables for security)
-# Only owner can see full address
-# if listing.owner_id != current_user.id:
-#     # Remove sensitive fields
-#     listing.street = None
-#     listing.postal_code = None
 
 # TODO: Use These helper functions for the above endpoints if needed
 

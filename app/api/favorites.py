@@ -5,6 +5,7 @@ from fastapi import APIRouter, Depends, HTTPException, Request
 from app.database.connection import get_pool_from_request
 from app.middleware.auth import extract_firebase_user_uid
 from app.middleware.rate_limit import limiter
+from app.services.listing_privacy import strip_private_listing_fields
 
 logger = logging.getLogger(__name__)
 logger.setLevel(logging.INFO)
@@ -80,7 +81,7 @@ async def get_favorites(
     async with get_pool_from_request(request).acquire() as conn:
         try:
             favorite_rows = await conn.fetch(get_favorites_query, user_id)
-            favorites = [dict(row) for row in favorite_rows]
+            favorites = [strip_private_listing_fields(dict(row)) for row in favorite_rows]
             for favorite in favorites:
                 if favorite.get("hero_image_url"):
                     blob_path = favorite["hero_image_url"].split("swapwithus-listing-images/")[-1]
