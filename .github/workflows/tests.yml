@@ -1,0 +1,68 @@
+# Runs on every push to main and every pull request, and is the required first
+# job of a release (see deploy.yml).
+#
+# Only test files that need nothing beyond Postgres and Redis are listed. Add a
+# file here once it passes without Docker Compose, Firestore or real GCS.
+
+name: Tests
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+  workflow_call:
+
+jobs:
+  test:
+    name: Run Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: msm
+          POSTGRES_PASSWORD: Mk123456 # Throwaway test database, same as compose.local.yaml
+          POSTGRES_DB: swapwithusDB
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U msm -d swapwithusDB"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+
+    steps:
+      - name: Checkout Repository Code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install Dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      # The app loads this file at import. The key is generated here and is valid
+      # for nothing, so tests can never reach the real Firebase project.
+      - name: Create Throwaway Firebase Credentials
+        run: python scripts/ci/create_fake_firebase_key.py swapwithus-project-firebase-adminsdk.json
+
+      - name: Run Tests
+        run: >-
+          python -m pytest -q
+          test/test_listing_privacy.py
+          test/test_image_storage_client.py
+          test/test_api_browse.py
+          test/test_create_tables.py

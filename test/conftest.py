@@ -34,31 +34,35 @@ if "localhost" not in ASYNCPG_URL and "127.0.0.1" not in ASYNCPG_URL:
 print(f"✅ Tests connecting to: {ASYNCPG_URL}")
 
 
+# GitHub Actions sets CI and provides Postgres and Redis itself (.github/workflows/tests.yml).
+USE_LOCAL_STACK = not os.getenv("CI")
+
+
 @pytest.fixture(scope="session", autouse=True)
 def docker_compose():
-    # Start docker-compose
-    subprocess.run(["docker", "compose", "up", "-d"], check=True)
+    if USE_LOCAL_STACK:
+        subprocess.run(["docker", "compose", "-f", "compose.local.yaml", "up", "-d"], check=True)
 
-    import time
-    time.sleep(2)  # Wait for the database to be ready
+        import time
+        time.sleep(2)  # Wait for the database to be ready
 
-    # Drop and recreate the database to start fresh.
-    # Address the DB by its compose SERVICE name ("db") instead of a hardcoded
-    # container name - the generated name depends on the project folder name.
-    print("🗑️  Resetting test database...")
-    subprocess.run([
-        "docker", "compose", "exec", "-T", "db",
-        "psql", "-U", "msm", "-d", "postgres", "-c",
-        'DROP DATABASE IF EXISTS "swapwithusDB";'
-    ], check=True, capture_output=True)
+        # Drop and recreate the database to start fresh.
+        # Address the DB by its compose SERVICE name ("db") instead of a hardcoded
+        # container name - the generated name depends on the project folder name.
+        print("🗑️  Resetting test database...")
+        subprocess.run([
+            "docker", "compose", "-f", "compose.local.yaml", "exec", "-T", "db",
+            "psql", "-U", "msm", "-d", "postgres", "-c",
+            'DROP DATABASE IF EXISTS "swapwithusDB";'
+        ], check=True, capture_output=True)
 
-    subprocess.run([
-        "docker", "compose", "exec", "-T", "db",
-        "psql", "-U", "msm", "-d", "postgres", "-c",
-        'CREATE DATABASE "swapwithusDB";'
-    ], check=True, capture_output=True)
+        subprocess.run([
+            "docker", "compose", "-f", "compose.local.yaml", "exec", "-T", "db",
+            "psql", "-U", "msm", "-d", "postgres", "-c",
+            'CREATE DATABASE "swapwithusDB";'
+        ], check=True, capture_output=True)
 
-    print("✅ Database reset complete")
+        print("✅ Database reset complete")
 
     # Run Alembic migrations to create/update schema
     print("📦 Running Alembic migrations for test database...")
@@ -85,13 +89,18 @@ def docker_compose():
     yield  # tests run after this point
 
     # Teardown: stop docker-compose
-    subprocess.run(["docker", "compose", "down"], check=True)
+    if USE_LOCAL_STACK:
+        subprocess.run(["docker", "compose", "-f", "compose.local.yaml", "down"], check=True)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def firebase_emulator():
     """Start Firebase Firestore emulator for tests (like docker_compose for PostgreSQL)"""
     import time
+
+    if not USE_LOCAL_STACK:
+        yield
+        return
 
     print("🔥 Starting Firebase Firestore emulator...")
 
@@ -133,16 +142,6 @@ async def create_db_pool():
     yield pool
 
     await pool.close()
-
-
-# no need to mock the whole method, only we can mock the returnn using return_value= ()
-@pytest.fixture(scope="session", autouse=True)
-def mock_optimize_images():
-    with patch(
-        "app.services.gcp_image_service.optimize_image",
-        side_effect=lambda file_content, max_width, quality: (file_content, "image/jpeg"),
-    ) as mock_func:
-        yield mock_func
 
 
 @pytest.fixture(scope="session", autouse=False)

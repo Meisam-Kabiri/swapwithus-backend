@@ -1,9 +1,15 @@
 # ==============================================================================
 # GitHub Actions CI/CD Pipeline - SwapWithUs Backend
 # ==============================================================================
-# This workflow runs automatically whenever code is pushed to the 'main' branch.
-# It authenticates with Google Cloud, builds your production Docker container, 
-# and deploys the latest version to Google Cloud Run.
+# Deploys only when a version tag is pushed, for a commit that is on main:
+#
+#   git tag v1.0.0
+#   git push origin v1.0.0
+#
+# It runs the tests, then builds a Docker image named after the tag and deploys
+# it to Google Cloud Run. Pushing to main no longer deploys anything.
+#
+# Database migrations are NOT run here. Run scripts/alembic-prod.sh by hand.
 #
 # REQUIRED GITHUB REPOSITORY SECRETS (Go to Settings -> Secrets -> Actions):
 #   1. GCP_PROJECT_ID: "swapwithus-project"
@@ -12,27 +18,43 @@
 
 name: Deploy Backend to Google Cloud Run
 
-# Trigger this workflow automatically on every push to the main branch
 on:
   push:
-    branches:
-      - main
+    tags:
+      - 'v*'
 
 jobs:
+  tests:
+    name: Tests
+    uses: ./.github/workflows/tests.yml
+
   deploy:
     name: Build & Deploy Backend
+    needs: tests
     runs-on: ubuntu-latest  # Runs on a fresh GitHub-hosted Linux virtual machine
 
     steps:
       # ------------------------------------------------------------------------
-      # Step 1: Download repo code onto the runner
+      # Step 1: Download repo code onto the runner, with history for the next step
       # Marketplace Link: https://github.com/marketplace/actions/checkout
       # ------------------------------------------------------------------------
       - name: Checkout Repository Code
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # ------------------------------------------------------------------------
-      # Step 2: Authenticate to GCP using Service Account JSON key
+      # Step 2: Git lets you tag any commit, so refuse tags that are not on main
+      # ------------------------------------------------------------------------
+      - name: Check Tag Is On Main
+        run: |
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag $GITHUB_REF_NAME is not on main, so it will not be deployed."
+            exit 1
+          fi
+
+      # ------------------------------------------------------------------------
+      # Step 3: Authenticate to GCP using Service Account JSON key
       # Marketplace Link: https://github.com/marketplace/actions/authenticate-to-google-cloud
       # ------------------------------------------------------------------------
       - name: Authenticate to Google Cloud
@@ -41,25 +63,25 @@ jobs:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       # ------------------------------------------------------------------------
-      # Step 3: Install & configure gcloud CLI on the runner
+      # Step 4: Install & configure gcloud CLI on the runner
       # Marketplace Link: https://github.com/marketplace/actions/set-up-gcloud-cli
       # ------------------------------------------------------------------------
       - name: Set up Cloud SDK
         uses: google-github-actions/setup-gcloud@v2
 
       # ------------------------------------------------------------------------
-      # Step 4: Build Docker image in Google Cloud Build & push to Container Registry
+      # Step 5: Build Docker image in Google Cloud Build & push to Container Registry
       # Uses the Dockerfile located at swapwithus-backend/Dockerfile
       # ------------------------------------------------------------------------
       - name: Build & Push Docker Image to Cloud Build
         run: |
-          gcloud builds submit --suppress-logs --tag gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:latest .
+          gcloud builds submit --suppress-logs --tag "gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:$GITHUB_REF_NAME" .
 
       # ------------------------------------------------------------------------
-      # Step 5: Deploy the newly pushed image to Cloud Run (europe-north1)
+      # Step 6: Deploy the newly pushed image to Cloud Run (europe-north1)
       # ------------------------------------------------------------------------
       - name: Deploy Container to Cloud Run
         run: |
           gcloud run deploy swapwithus-backend \
-            --image gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:latest \
+            --image "gcr.io/${{ secrets.GCP_PROJECT_ID }}/swapwithus-backend:$GITHUB_REF_NAME" \
             --region europe-north1
