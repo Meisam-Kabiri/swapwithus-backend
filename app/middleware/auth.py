@@ -1,4 +1,5 @@
 import os
+from dataclasses import dataclass
 
 import firebase_admin  # type: ignore
 from fastapi import HTTPException, Request
@@ -17,9 +18,16 @@ if not firebase_admin._apps:
     firebase_admin.initialize_app(cred)
 
 
-def extract_firebase_user_uid(request: Request) -> str:
+@dataclass(frozen=True)
+class FirebaseUser:
+    uid: str
+    email: str | None  # Some logins, such as a phone-only Facebook account, have no email
+    email_verified: bool
+
+
+def _decode_firebase_token(request: Request) -> dict:
     """
-    Verify Firebase token and return the user UID
+    Verify the Firebase token and return its contents
     Raises HTTPException if token is invalid or missing
     """
     auth_header = request.headers.get("Authorization")
@@ -30,11 +38,25 @@ def extract_firebase_user_uid(request: Request) -> str:
     token = auth_header.split("Bearer ")[1]
 
     try:
-        decoded_token = firebase_auth.verify_id_token(token)
-        return decoded_token["uid"]
+        return firebase_auth.verify_id_token(token)
     except Exception:
         # Don't expose Firebase error details to user
         raise HTTPException(status_code=401, detail="Invalid or expired token")
+
+
+def extract_firebase_user_uid(request: Request) -> str:
+    """Return the UID of the logged-in user."""
+    return _decode_firebase_token(request)["uid"]
+
+
+def get_firebase_user(request: Request) -> FirebaseUser:
+    """Return the logged-in user's identity as verified by Firebase, for when more than the UID is needed."""
+    decoded_token = _decode_firebase_token(request)
+    return FirebaseUser(
+        uid=decoded_token["uid"],
+        email=decoded_token.get("email"),
+        email_verified=decoded_token.get("email_verified", False),
+    )
 
 
 def get_optional_firebase_uid(request: Request) -> str | None:

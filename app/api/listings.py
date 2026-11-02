@@ -12,10 +12,11 @@ from typing import List
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, UploadFile
 
-from app.constants import LISTING_CATEGORIES
+from app.constants import ACCOUNT_HAS_NO_EMAIL, LISTING_CATEGORIES
 from app.database.connection import get_pool_from_request
 from app.database.query_builder import QueryBuilder
-from app.middleware.auth import extract_firebase_user_uid, get_optional_firebase_uid
+from app.middleware.auth import (FirebaseUser, extract_firebase_user_uid, get_firebase_user,
+                                 get_optional_firebase_uid)
 from app.middleware.rate_limit import limiter
 from app.models.book_listing import BookListingCreate, BookListingResponse, BookListingUpdate
 from app.models.caravan_listing import (CaravanListingCreate, CaravanListingResponse,
@@ -118,7 +119,7 @@ async def create_listing(
     request: Request,
     listing: str = Form(...),
     images: List[UploadFile] = File(...),
-    user_uid: str = Depends(extract_firebase_user_uid),
+    firebase_user: FirebaseUser = Depends(get_firebase_user),
 ):
     """
     Create a new home listing with images.
@@ -126,9 +127,21 @@ async def create_listing(
     Uploads images to cloud storage in parallel, then saves listing and image
     metadata to the database. Supports up to 20 images per listing.
     """
+    user_uid = firebase_user.uid
+
     category = json.loads(listing).get("category", "").lower()
     if category not in LISTING_CATEGORIES:
         raise HTTPException(400, "Invalid category provided")
+
+    # users.email can't be empty, so an account with no email needs an existing row.
+    # Checked before any upload so a rejected request leaves no files behind.
+    if not firebase_user.email:
+        async with get_pool_from_request(request).acquire() as conn:
+            user_exists = await conn.fetchval(
+                "SELECT 1 FROM users WHERE owner_firebase_uid = $1", user_uid
+            )
+        if not user_exists:
+            raise HTTPException(400, ACCOUNT_HAS_NO_EMAIL)
 
     uploaded_urls = []
     try:
@@ -279,14 +292,15 @@ async def create_listing(
     try:
         async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
-                # Create user if doesn't exist
-                await conn.execute(
-                    create_user_query,
-                    user_data_dict.get("owner_firebase_uid"),
-                    user_data_dict.get("email"),
-                    user_data_dict.get("name"),
-                    user_data_dict.get("profile_image"),
-                )
+                # Create user if doesn't exist. The email comes from the token, never the request.
+                if firebase_user.email:
+                    await conn.execute(
+                        create_user_query,
+                        user_uid,
+                        firebase_user.email,
+                        user_data_dict.get("name"),
+                        user_data_dict.get("profile_image"),
+                    )
 
                 # Create listing - build query without executing
                 insert_query, insert_values = QueryBuilder.build_insert_query(

@@ -1,57 +1,35 @@
 from test.factories import UserCreateFactory
-from unittest.mock import patch
+from uuid import uuid4
 
-from fastapi.testclient import TestClient
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
+from app.middleware.auth import FirebaseUser, get_firebase_user
 
 
-def test_create_user(create_db_pool):
+async def test_create_user(create_db_pool):
     user_data = UserCreateFactory.build()
+    email = f"{uuid4().hex}@example.com"
+    app.dependency_overrides[get_firebase_user] = lambda: FirebaseUser(
+        user_data.owner_firebase_uid, email, True
+    )
+    app.state.limiter.enabled = False
 
-    # Mock Firebase auth verification
-    with patch("app.api.users.extract_firebase_user_uid") as mock_verify:
-        mock_verify.return_value = user_data.owner_firebase_uid
-
-        # Use TestClient with context manager (triggers lifespan)
-        # we can choose not to use context manager cuz we are create the pool in the fixture manually
-        with TestClient(app) as client:
-            # Disable rate limiting for tests by setting enabled=False
-            app.state.limiter.enabled = False
-
-            response = client.post("/api/users", json=user_data.model_dump())
-
-            assert response.status_code == 201
-            data = response.json()
-            assert data.get("uid") == user_data.owner_firebase_uid
-            assert data.get("message") == "User created successfully"
-
-
-async def test_create_user_async(create_db_pool):  # Use db_pool fixture
-    user_data = UserCreateFactory.build()
-
-    with patch("app.api.users.extract_firebase_user_uid") as mock_verify:
-        mock_verify.return_value = user_data.owner_firebase_uid
-
-        app.state.limiter.enabled = False
-
+    try:
         async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as client:
             response = await client.post("/api/users", json=user_data.model_dump())
+    finally:
+        app.dependency_overrides.clear()
 
-            assert response.status_code in (200, 201)
-            data = response.json()
-            assert data.get("uid") == user_data.owner_firebase_uid
+    assert response.status_code == 201, response.text
+    data = response.json()
+    assert data.get("uid") == user_data.owner_firebase_uid
+    assert data.get("message") == "User created successfully"
 
-            # BONUS: Verify it's actually in the database!
-            async with create_db_pool.acquire() as conn:
-                user = await conn.fetchrow(
-                    "SELECT * FROM users WHERE owner_firebase_uid = $1",
-                    user_data.owner_firebase_uid,
-                )
-                assert user is not None
-                assert user["email"] == user_data.email
-                assert user["name"] == user_data.name
-
-        # you can also use client = AsyncClient(..) and not use async with statement
-        # but then you have to remember to call await client.aclose() at the end of the test
+    user = await create_db_pool.fetchrow(
+        "SELECT * FROM users WHERE owner_firebase_uid = $1",
+        user_data.owner_firebase_uid,
+    )
+    assert user is not None
+    assert user["email"] == email
+    assert user["name"] == user_data.name

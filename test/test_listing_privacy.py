@@ -347,11 +347,11 @@ async def test_favorites_hide_owner_details_on_old_home_rows(create_db_pool):
     [("clothes", ClothingListingCreateFactory), ("caravans", CaravanListingCreateFactory)],
 )
 async def test_new_listing_saves_owner_details_on_users_only(create_db_pool, category, factory):
-    from app.middleware.auth import extract_firebase_user_uid
+    from app.middleware.auth import FirebaseUser, get_firebase_user
 
     owner = f"new_owner_{uuid4()}"
     email = f"{uuid4().hex}@example.com"
-    app.dependency_overrides[extract_firebase_user_uid] = lambda: owner
+    app.dependency_overrides[get_firebase_user] = lambda: FirebaseUser(owner, email, True)
     listing = factory.build().model_dump(mode="json", exclude={"listing_id"})
     listing.update(
         category=category,

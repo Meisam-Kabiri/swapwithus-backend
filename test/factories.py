@@ -26,9 +26,6 @@ class UserCreateFactory(ModelFactory[UserCreate]):
     __model__ = UserCreate
     __check_model__ = False  # Suppress deprecation warning
 
-    # Tell polyfactory how to generate EmailStr
-    email = Use(lambda: fake.email())
-
     # Generate realistic Firebase UID (28 chars, matching Firebase UID format)
     owner_firebase_uid = Use(lambda: uuid4().hex[:20])
 

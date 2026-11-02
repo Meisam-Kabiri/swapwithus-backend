@@ -11,6 +11,10 @@ from typing import Literal, get_args
 ListingCategory = Literal["homes", "books", "clothes", "caravans"]
 LISTING_CATEGORIES = list(get_args(ListingCategory))
 
+ACCOUNT_HAS_NO_EMAIL = (
+    "Your login didn't share an email address. Please sign up with one, or allow access to it."
+)
+
 # Valid table names (includes listings categories + supporting tables)
 VALID_TABLE_NAMES = ["homes", "books", "clothes", "caravans", "users", "listings"]
 

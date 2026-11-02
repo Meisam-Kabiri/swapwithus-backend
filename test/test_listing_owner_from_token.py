@@ -8,7 +8,7 @@ import pytest
 from httpx import ASGITransport, AsyncClient
 
 from app.main import app
-from app.middleware.auth import extract_firebase_user_uid
+from app.middleware.auth import FirebaseUser, extract_firebase_user_uid, get_firebase_user
 
 UPLOADED_URL = "https://storage.googleapis.com/swapwithus-listing-images/homes/{}.jpg"
 
@@ -21,11 +21,11 @@ def rate_limiter_off():
 
 
 async def create_home(logged_in_as, claimed_owner, email=None):
-    app.dependency_overrides[extract_firebase_user_uid] = lambda: logged_in_as
+    email = email or f"{uuid4().hex}@example.com"
+    app.dependency_overrides[get_firebase_user] = lambda: FirebaseUser(logged_in_as, email, True)
     body = {
         "category": "homes",
         "ownerFirebaseUid": claimed_owner,
-        "email": email or f"{uuid4().hex}@example.com",
         "name": "Fake Person",
         "accommodationType": "entire_place",
         "propertyType": "apartment",

@@ -5,8 +5,9 @@ from fastapi.responses import JSONResponse
 
 from app.database.connection import get_pool_from_request
 from app.database.query_builder import QueryBuilder
-from app.middleware.auth import (extract_firebase_user_uid, get_optional_firebase_uid,
-                                 verify_user_owns_resource)
+from app.constants import ACCOUNT_HAS_NO_EMAIL
+from app.middleware.auth import (FirebaseUser, extract_firebase_user_uid, get_firebase_user,
+                                 get_optional_firebase_uid, verify_user_owns_resource)
 from app.middleware.rate_limit import limiter
 from app.models.user import UserCreate, UserUpdate
 from app.services.gcp_image_service import delete_all_images_from_storage
@@ -247,20 +248,26 @@ async def get_user_listings(uid: str, request: Request):
 async def create_user(
     request: Request,
     user: UserCreate,
-    user_uid: str = Depends(extract_firebase_user_uid),
+    firebase_user: FirebaseUser = Depends(get_firebase_user),
 ):
     """
     Create a new user account.
 
     Called after Firebase signup (email/password, Google, or Facebook).
     Verifies Firebase token and creates user record in database.
+    The email and its verified status come from the token, never the request.
     """
     # Verify the token UID matches the user being created
-    if user.owner_firebase_uid != user_uid:
+    if user.owner_firebase_uid != firebase_user.uid:
         raise HTTPException(403, "Cannot create user account for another user")
+
+    if not firebase_user.email:
+        raise HTTPException(400, ACCOUNT_HAS_NO_EMAIL)
 
     try:
         user_dict = user.model_dump()
+        user_dict["email"] = firebase_user.email
+        user_dict["is_email_verified"] = firebase_user.email_verified
 
         # Build insert query
         insert_query, insert_values = QueryBuilder.build_insert_query(user_dict, "users")

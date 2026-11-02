@@ -1,6 +1,6 @@
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, Field
 
 from app.models.utils import snake_to_camel
 
@@ -11,10 +11,8 @@ class UserCreate(BaseModel):
         populate_by_name=True,
     )
     owner_firebase_uid: str
-    email: Annotated[EmailStr, Field(max_length=255)]
     name: Annotated[str, Field(max_length=100, min_length=2)]
     profile_image: Annotated[str, Field(max_length=500)] | None = None
-    is_email_verified: bool
 
 
 class UserUpdate(BaseModel):
@@ -37,6 +35,5 @@ class FirebaseUserUpsert(BaseModel):
         populate_by_name=True,
     )
     owner_firebase_uid: str
-    email: Annotated[EmailStr, Field(max_length=255)] | None = None
     name: Annotated[str, Field(max_length=100, min_length=2)] | None = None
     profile_image: str | None = None
