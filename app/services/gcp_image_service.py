@@ -17,7 +17,29 @@ logger = logging.getLogger(__name__)
 _EXECUTOR = ThreadPoolExecutor(max_workers=10)
 
 
-""" 
+# --- Local GCS emulation -----------------------------------------------------
+# STORAGE_EMULATOR_HOST is set ONLY in local dev (scripts/dev/run-local.sh) and
+# points every GCS call at fake-gcs-server instead of real Google Cloud Storage.
+# In prod (Cloud Run) it is unset, so _get_storage_client() returns a normal client.
+def _emulator_host() -> str | None:
+    return os.getenv("STORAGE_EMULATOR_HOST") or None
+
+
+def _get_storage_client() -> storage.Client:
+    """GCS client. Local: routed to fake-gcs-server with anonymous creds. Prod: real GCS."""
+    emulator = _emulator_host()
+    if emulator:
+        from google.auth.credentials import AnonymousCredentials
+
+        return storage.Client(
+            project=os.getenv("SWAPWITHUS_PROJECT_ID", "local-dev"),
+            credentials=AnonymousCredentials(),
+            client_options={"api_endpoint": emulator},
+        )
+    return storage.Client()
+
+
+"""
 Google Cloud client libraries use Application Default Credentials (ADC). The library checks in this order (common cases):
 
 GOOGLE_APPLICATION_CREDENTIALS environment variable — path to a service account JSON key file.
