@@ -449,10 +449,13 @@ async def delete_listing(
         try:
             async with conn.transaction():
                 await conn.execute(f"DELETE FROM {category} WHERE listing_id = $1", listing_id)
+                await conn.execute("DELETE FROM favorites WHERE listing_id = $1", listing_id)
                 deleted_images = await conn.fetch(
                     "DELETE FROM images WHERE listing_id = $1 RETURNING *", listing_id
                 )
-                logger.info(f"Successfully deleted listing: {listing_id} from table: {category}")
+                logger.info(
+                    f"Successfully deleted listing: {listing_id} from {category}, favorites, and images"
+                )
 
         except Exception as e:
             logger.error(f"Error deleting listing: {e}", exc_info=True)

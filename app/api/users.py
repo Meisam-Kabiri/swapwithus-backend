@@ -293,12 +293,23 @@ async def delete_user(request: Request, uid: str):
                 )
 
             async with conn.transaction():
-                # Get all images to delete from storage (simpler query)
+                # Get all images to delete from storage
                 image_urls = await conn.fetch(
                     "SELECT public_url FROM images WHERE owner_firebase_uid = $1", uid
                 )
 
-                # Delete user (CASCADE will delete homes and images from DB)
+                # Clean up favorites referencing this user's listings
+                await conn.execute(
+                    """
+                    DELETE FROM favorites
+                    WHERE listing_id IN (
+                        SELECT listing_id FROM images WHERE owner_firebase_uid = $1
+                    )
+                    """,
+                    uid,
+                )
+
+                # Delete user (CASCADE will delete homes, books, caravans, clothes, images, and user favorites from DB)
                 result = await conn.execute("DELETE FROM users WHERE owner_firebase_uid = $1", uid)
                 if result == "DELETE 0":
                     raise HTTPException(status_code=404, detail="User not found")
