@@ -43,11 +43,11 @@ async def geocode_address(address: str) -> tuple[float | None, float | None]:
             latitude = location["lat"]
             longitude = location["lng"]
 
-            logger.info(f"Successfully geocoded address: {address}")
+            logger.info("Successfully geocoded an address")
             return latitude, longitude
 
         elif data.get("status") == "ZERO_RESULTS":
-            logger.warning(f"No results found for address: {address}")
+            logger.warning("No geocoding results found for an address")
             return None, None
 
         else:
@@ -57,9 +57,10 @@ async def geocode_address(address: str) -> tuple[float | None, float | None]:
             return None, None
 
     except aiohttp.ClientError as e:
-        logger.error(f"HTTP request error during geocoding: {e}")
+        # The error text can include the request URL, which holds the address and API key
+        logger.error(f"HTTP request error during geocoding: {type(e).__name__}")
         return None, None
 
     except Exception as e:
-        logger.error(f"Geocoding error: {e}")
+        logger.error(f"Geocoding error: {type(e).__name__}")
         return None, None

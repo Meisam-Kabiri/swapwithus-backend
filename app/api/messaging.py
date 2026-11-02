@@ -138,7 +138,6 @@ async def create_conversation(
                 last_message_preview = "🎥 Video"
 
             # Update last message
-            logger.info(f"DEBUG CREATE: Adding to existing conversation, initial_message={data.initial_message}")
             db.collection("conversations").document(existing_conv_id).update(
                 {
                     "last_message": last_message_preview,
@@ -221,7 +220,6 @@ async def get_conversations(
 
     Returns conversations ordered by last message time (most recent first).
     """
-    print("Fetching conversations")
     try:
         conversations_ref = db.collection("conversations")
         user_conversations = (
@@ -254,7 +252,6 @@ async def get_conversations(
             conversations.append(conversation)
 
         logger.info(f"Retrieved {len(conversations)} conversations for user {user_uid}")
-        print(conversations)
         return {"conversations": conversations, "total": len(conversations)}
 
     except Exception as e:
@@ -355,9 +352,6 @@ async def send_message(
     if (not text or not text.strip()) and not media:
         raise HTTPException(status_code=400, detail="Message must contain text or media")
 
-    # Debug logging
-    logger.info(f"Received message: text={text}, has_media={media is not None}")
-
     try:
         # Get conversation and verify participation
         conv_ref = db.collection("conversations").document(conversation_id)
@@ -377,9 +371,7 @@ async def send_message(
         media_url = None
         media_type = None
         if media:
-            logger.info(f"Uploading media: {media.filename}")
             media_url, media_type = await upload_message_media(media, conversation_id)
-            logger.info(f"Media uploaded: {media_url}, type: {media_type}")
 
         # Create message
         message_data = {
@@ -414,11 +406,6 @@ async def send_message(
             last_message_preview = "🎵 Audio"
         else:
             last_message_preview = "Message"
-
-        # Debug logging
-        logger.info(f"DEBUG: sender_uid={sender_uid}, receiver_uid={receiver_uid}")
-        logger.info(f"DEBUG: text={text}, media_type={media_type}")
-        logger.info(f"DEBUG: About to update last_message with: {last_message_preview}")
 
         update_data = {
             "last_message": last_message_preview,
