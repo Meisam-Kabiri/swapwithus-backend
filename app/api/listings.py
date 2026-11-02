@@ -149,6 +149,10 @@ async def create_listing(
         user_data = FirebaseUserUpsert.model_validate_json(listing)
         user_data_dict = user_data.model_dump(exclude_none=True, exclude_unset=True)
 
+        # The owner is whoever the login token says, never what the request body claims
+        listing_data_dict["owner_firebase_uid"] = user_uid
+        user_data_dict["owner_firebase_uid"] = user_uid
+
         metadata_collection = ImageMetadataCollection.model_validate_json(listing)
         metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
         images_metadata = metadata_collection_dict["images_metadata"]
@@ -519,6 +523,13 @@ async def update_home_listing(
         if listing_owner != user_uid:
             raise HTTPException(403, "You don't own this listing")
 
+        existing_image_urls = {
+            row["public_url"]
+            for row in await conn.fetch(
+                "SELECT public_url FROM images WHERE listing_id = $1", listing_id
+            )
+        }
+
     uploaded_urls = []
 
     # Parse form data
@@ -534,6 +545,10 @@ async def update_home_listing(
     elif category.lower() == "caravans":
         listing_data = CaravanListingUpdate.model_validate_json(listing)
         listing_data_dict = listing_data.model_dump(exclude_none=True)
+
+    # An update can't change who owns a listing or which listing it is
+    listing_data_dict.pop("owner_firebase_uid", None)
+    listing_data_dict.pop("listing_id", None)
 
     metadata_collection = ImageMetadataCollection.model_validate_json(listing)
     metadata_collection_dict = metadata_collection.model_dump(exclude_none=True)
@@ -551,6 +566,10 @@ async def update_home_listing(
         for image_metadata_dic in images_metadata
         if image_metadata_dic.get("public_url", "") != ""
     ]
+
+    # A URL attached here would be deleted from storage along with this listing later
+    if any(metadata["public_url"] not in existing_image_urls for metadata in updated_metadata):
+        raise HTTPException(400, "Image does not belong to this listing")
 
     new_images_count = sum(1 for m in images_metadata if m.get("public_url", "") == "")
     if len(images) > 20:
@@ -647,13 +666,13 @@ async def update_home_listing(
         )
         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
         ON CONFLICT (public_url, listing_id) DO UPDATE SET
-            cdn_url = EXCLUDED.cdn_url,
             tag = EXCLUDED.tag,
             caption = EXCLUDED.caption,
             is_hero = EXCLUDED.is_hero,
             sort_order = EXCLUDED.sort_order,
             updated_at = NOW()
     """
+    removed_urls: list[str] = []
     try:
         async with get_pool_from_request(request).acquire() as conn:
             async with conn.transaction():
@@ -663,18 +682,20 @@ async def update_home_listing(
                 )
                 await conn.execute(update_query, *update_values)
 
-                # Delete removed images from DB
-
+                # Delete removed images from DB. Only URLs that really belonged to this
+                # listing come back, and only those may be deleted from storage below.
                 if deleted_urls:
-                    await conn.execute(
+                    removed_rows = await conn.fetch(
                         """
                       DELETE FROM images
                       WHERE listing_id = $1
                         AND public_url = ANY($2)
+                      RETURNING public_url
                       """,
                         listing_id,
                         deleted_urls,
                     )
+                    removed_urls = [row["public_url"] for row in removed_rows]
 
                 # Insert/update image records
                 if image_records:
@@ -707,17 +728,17 @@ async def update_home_listing(
         raise HTTPException(status_code=500, detail="Failed to update listing. Please try again.")
 
     # Delete removed images from storage after successful DB transaction
-    if deleted_urls:
+    if removed_urls:
         try:
             logger.info(
-                f"Attempting to delete {len(deleted_urls)} images from storage: {deleted_urls}"
+                f"Attempting to delete {len(removed_urls)} images from storage: {removed_urls}"
             )
-            deletion_success = await delete_all_images_from_storage(deleted_urls)
+            deletion_success = await delete_all_images_from_storage(removed_urls)
             if deletion_success:
-                logger.info(f"Successfully deleted {len(deleted_urls)} images from storage")
+                logger.info(f"Successfully deleted {len(removed_urls)} images from storage")
             else:
                 logger.warning(
-                    f"Failed to delete some or all of {len(deleted_urls)} images from storage"
+                    f"Failed to delete some or all of {len(removed_urls)} images from storage"
                 )
         except Exception as e:
             logger.error(f"Error deleting images from storage: {e}", exc_info=True)
@@ -730,7 +751,7 @@ async def update_home_listing(
         "listing_id": listing_id,
         "message": "Listing updated successfully",
         "images_updated": len(image_records),
-        "images_deleted": len(deleted_urls),
+        "images_deleted": len(removed_urls),
     }
 
 

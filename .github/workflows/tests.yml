@@ -63,6 +63,8 @@ jobs:
         run: >-
           python -m pytest -q
           test/test_listing_privacy.py
+          test/test_listing_image_ownership.py
+          test/test_listing_owner_from_token.py
           test/test_image_storage_client.py
           test/test_api_browse.py
           test/test_create_tables.py
