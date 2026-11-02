@@ -15,11 +15,11 @@ export SWAPWITHUS_DB_PASSWORD=Mk123456
 export SWAPWITHUS_DATABASE_NAME=swapwithusDB
 export FIREBASE_AUTH_EMULATOR_HOST="${FIREBASE_AUTH_EMULATOR_HOST:-localhost:9099}"
 
-echo "🐳 Starting local Docker Postgres + Redis..."
-docker compose up -d
+echo "🐳 Starting local Docker Postgres + Redis + GCS Emulator..."
+docker compose -f compose.local.yaml up -d
 
 echo "⏳ Waiting for Postgres to be healthy..."
-until [ "$(docker compose ps db --format '{{.Health}}')" = "healthy" ]; do
+until [ "$(docker compose -f compose.local.yaml ps db --format '{{.Health}}')" = "healthy" ]; do
   sleep 1
 done
 

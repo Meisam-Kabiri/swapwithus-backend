@@ -33,11 +33,11 @@ if ! command -v firebase >/dev/null 2>&1; then
   exit 1
 fi
 
-echo "🐳 Starting local Docker Postgres + Redis..."
-docker compose up -d
+echo "🐳 Starting local Docker Postgres + Redis + GCS Emulator..."
+docker compose -f compose.local.yaml up -d
 
 echo "⏳ Waiting for Postgres to be healthy..."
-until [ "$(docker compose ps db --format '{{.Health}}')" = "healthy" ]; do
+until [ "$(docker compose -f compose.local.yaml ps db --format '{{.Health}}')" = "healthy" ]; do
   sleep 1
 done
 
